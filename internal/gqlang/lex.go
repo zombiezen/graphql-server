@@ -23,7 +23,7 @@ import (
 
 type lexer struct {
 	input string
-	pos   int
+	pos   Pos
 }
 
 func lex(input string) []token {
@@ -261,7 +261,7 @@ func (l *lexer) skipIgnored() {
 			i := strings.IndexAny(l.input, "\n\r")
 			if i == -1 {
 				// To end of input.
-				l.pos += len(l.input)
+				l.pos += Pos(len(l.input))
 				l.input = ""
 				return
 			}
@@ -275,14 +275,14 @@ func (l *lexer) skipIgnored() {
 func (l *lexer) consume(n int) string {
 	s := l.input[:n]
 	l.input = l.input[n:]
-	l.pos += n
+	l.pos += Pos(n)
 	return s
 }
 
 type token struct {
 	kind   tokenKind
 	source string
-	start  int
+	start  Pos
 }
 
 func (tok token) String() string {
@@ -292,15 +292,17 @@ func (tok token) String() string {
 	return tok.source
 }
 
-func (tok token) end() int {
-	return tok.start + len(tok.source)
+func (tok token) end() Pos {
+	return tok.start + Pos(len(tok.source))
 }
 
-// posString formats a byte position into a line and column number.
-// (The column number is byte-based.)
-func posString(input string, pos int) string {
+// A Pos is a 0-based byte offset in a GraphQL document.
+type Pos int
+
+// ToPosition converts a byte position into a line and column number.
+func (pos Pos) ToPosition(input string) Position {
 	line, col := 1, 1
-	for i := 0; i < pos; i++ {
+	for i := 0; i < int(pos); i++ {
 		switch input[i] {
 		case bom[0]:
 			if !strings.HasPrefix(input[i:], bom) {
@@ -320,7 +322,19 @@ func posString(input string, pos int) string {
 			col++
 		}
 	}
-	return fmt.Sprintf("%d:%d", line, col)
+	return Position{line, col}
+}
+
+// A Position is a line/column pair. Both are 1-based.
+// The column is byte-based.
+type Position struct {
+	Line   int
+	Column int
+}
+
+// String returns p in the form "line:col".
+func (p Position) String() string {
+	return fmt.Sprintf("%d:%d", p.Line, p.Column)
 }
 
 type tokenKind int

@@ -264,6 +264,26 @@ foo\"""bar
 				{kind: intValue, source: "5", start: 4},
 			},
 		},
+		{
+			name:  "BasicOperation",
+			input: "query MyQuery { user(id: 4) { firstName, lastName } }\n",
+			want: []token{
+				{kind: name, source: "query", start: 0},
+				{kind: name, source: "MyQuery", start: 6},
+				{kind: lbrace, source: "{", start: 14},
+				{kind: name, source: "user", start: 16},
+				{kind: lparen, source: "(", start: 20},
+				{kind: name, source: "id", start: 21},
+				{kind: colon, source: ":", start: 23},
+				{kind: intValue, source: "4", start: 25},
+				{kind: rparen, source: ")", start: 26},
+				{kind: lbrace, source: "{", start: 28},
+				{kind: name, source: "firstName", start: 30},
+				{kind: name, source: "lastName", start: 41},
+				{kind: rbrace, source: "}", start: 50},
+				{kind: rbrace, source: "}", start: 52},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -278,30 +298,31 @@ foo\"""bar
 	}
 }
 
-func TestPosString(t *testing.T) {
+func TestToPosition(t *testing.T) {
 	tests := []struct {
 		input string
-		pos   int
-		want  string
+		pos   Pos
+		want  Position
 	}{
-		{"", 0, "1:1"},
-		{"foo", 0, "1:1"},
-		{"foo", 1, "1:2"},
-		{"foo\n", 3, "1:4"},
-		{"foo\nbar", 3, "1:4"},
-		{"foo\nbar", 4, "2:1"},
-		{"foo\r\nbar", 3, "1:4"},
-		{"foo\r\nbar", 4, "1:4"},
-		{"foo\r\nbar", 5, "2:1"},
-		{"\ufefffoo", 0, "1:1"},
-		{"\ufefffoo", 1, "1:1"},
-		{"\ufefffoo", 2, "1:1"},
-		{"\ufefffoo", 3, "1:1"},
-		{"\ufefffoo", 4, "1:2"},
+		{"", 0, Position{1, 1}},
+		{"foo", 0, Position{1, 1}},
+		{"foo", 1, Position{1, 2}},
+		{"foo", 3, Position{1, 4}},
+		{"foo\n", 3, Position{1, 4}},
+		{"foo\nbar", 3, Position{1, 4}},
+		{"foo\nbar", 4, Position{2, 1}},
+		{"foo\r\nbar", 3, Position{1, 4}},
+		{"foo\r\nbar", 4, Position{1, 4}},
+		{"foo\r\nbar", 5, Position{2, 1}},
+		{"\ufefffoo", 0, Position{1, 1}},
+		{"\ufefffoo", 1, Position{1, 1}},
+		{"\ufefffoo", 2, Position{1, 1}},
+		{"\ufefffoo", 3, Position{1, 1}},
+		{"\ufefffoo", 4, Position{1, 2}},
 	}
 	for _, test := range tests {
-		if got := posString(test.input, test.pos); got != test.want {
-			t.Errorf("posString(%q, %d) = %q; want %q", test.input, test.pos, got, test.want)
+		if got := test.pos.ToPosition(test.input); got != test.want {
+			t.Errorf("posString(%q, %d) = %v; want %v", test.input, test.pos, got, test.want)
 		}
 	}
 }
