@@ -41,10 +41,11 @@ type Definition interface {
 // Operation is a query, a mutation, or a subscription.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Operations
 type Operation struct {
-	Start        Pos
-	Type         OperationType
-	Name         *Name
-	SelectionSet *SelectionSet
+	Start               Pos
+	Type                OperationType
+	Name                *Name
+	VariableDefinitions *VariableDefinitions
+	SelectionSet        *SelectionSet
 }
 
 // StartPos returns op.Start.
@@ -123,7 +124,14 @@ type Arguments struct {
 type Argument struct {
 	Name  *Name
 	Colon Pos
-	Value *ScalarValue
+	Value *InputValue
+}
+
+// An InputValue is a scalar or a variable reference.
+// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Values
+type InputValue struct {
+	Scalar      *ScalarValue
+	VariableRef *Variable
 }
 
 // ScalarValue is a primitive literal like a string or integer.
@@ -159,6 +167,34 @@ const (
 	StringScalar
 )
 
+// A Variable is an input to a GraphQL operation.
+// https://graphql.github.io/graphql-spec/June2018/#Variable
+type Variable struct {
+	Dollar Pos
+	Name   *Name
+}
+
+// String returns the variable in the form "$foo".
+func (v *Variable) String() string {
+	return "$" + v.Name.String()
+}
+
+// VariableDefinitions is the set of variables an operation defines.
+// https://graphql.github.io/graphql-spec/June2018/#Variable
+type VariableDefinitions struct {
+	LParen Pos
+	Defs   []*VariableDefinition
+	RParen Pos
+}
+
+// VariableDefinition is an element of VariableDefinitions.
+// https://graphql.github.io/graphql-spec/June2018/#Variable
+type VariableDefinition struct {
+	Var   *Variable
+	Colon Pos
+	Type  *TypeRef
+}
+
 // A Name is an identifier.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Names
 type Name struct {
@@ -172,6 +208,30 @@ func (n *Name) String() string {
 		return ""
 	}
 	return n.Value
+}
+
+// A TypeRef is a named type, a list type, or a non-null type.
+// https://graphql.github.io/graphql-spec/June2018/#Type
+type TypeRef struct {
+	Named   *Name
+	List    *ListType
+	NonNull *NonNullType
+}
+
+// ListType declares a homogenous sequence of another type.
+// https://graphql.github.io/graphql-spec/June2018/#Type
+type ListType struct {
+	LBracket Pos
+	Type     *TypeRef
+	RBracket Pos
+}
+
+// NonNullType declares a named or list type that cannot be null.
+// https://graphql.github.io/graphql-spec/June2018/#Type
+type NonNullType struct {
+	Named *Name
+	List  *ListType
+	Pos   Pos
 }
 
 type parser struct {
@@ -224,13 +284,18 @@ func (p *parser) definition() (Definition, []error) {
 	if len(p.tokens) == 0 {
 		return nil, nil
 	}
-	return p.operation()
+	op, errs := p.operation()
+	if op == nil {
+		return nil, errs
+	}
+	return op, errs
 }
 
 func (p *parser) operation() (*Operation, []error) {
 	op := &Operation{
 		Start: p.tokens[0].start,
 	}
+	var errs []error
 	switch first := p.tokens[0]; first.kind {
 	case name:
 		switch first.source {
@@ -250,7 +315,7 @@ func (p *parser) operation() (*Operation, []error) {
 		if len(p.tokens) == 0 {
 			return nil, []error{&posError{
 				pos: p.eofPos,
-				err: xerrors.New("operation: expected name or selection set, got EOF"),
+				err: xerrors.New("operation: expected name, variable definitions, or selection set, got EOF"),
 			}}
 		}
 		if p.tokens[0].kind == name {
@@ -258,6 +323,23 @@ func (p *parser) operation() (*Operation, []error) {
 			op.Name, err = p.name()
 			if err != nil {
 				return nil, []error{xerrors.Errorf("operation: %w", err)}
+			}
+			if len(p.tokens) == 0 {
+				return nil, []error{&posError{
+					pos: p.eofPos,
+					err: xerrors.New("operation: expected variable definitions or selection set, got EOF"),
+				}}
+			}
+		}
+		if p.tokens[0].kind == lparen {
+			var varDefErrs []error
+			op.VariableDefinitions, varDefErrs = p.variableDefinitions()
+			for _, err := range varDefErrs {
+				if op.Name != nil && op.Name.Value != "" {
+					errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name.Value, err))
+				} else {
+					errs = append(errs, xerrors.Errorf("operation: %w", err))
+				}
 			}
 		}
 	case lbrace:
@@ -269,13 +351,13 @@ func (p *parser) operation() (*Operation, []error) {
 			err: xerrors.Errorf("operation: expected query, mutation, subscription, or '{', found %q", first),
 		}}
 	}
-	var errs []error
-	op.SelectionSet, errs = p.selectionSet()
-	for i := range errs {
+	var selSetErrs []error
+	op.SelectionSet, selSetErrs = p.selectionSet()
+	for _, err := range selSetErrs {
 		if op.Name != nil && op.Name.Value != "" {
-			errs[i] = xerrors.Errorf("operation %s: %w", op.Name.Value)
+			errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name.Value, err))
 		} else {
-			errs[i] = xerrors.Errorf("operation: %w", errs[i])
+			errs = append(errs, xerrors.Errorf("operation: %w", err))
 		}
 	}
 	return op, errs
@@ -342,7 +424,7 @@ func (p *parser) field() (*Field, []error) {
 	var errs []error
 	if p.tokens[0].kind == lparen {
 		var argsErrs []error
-		f.Arguments, argsErrs = p.arguments()
+		f.Arguments, argsErrs = p.arguments(false)
 		for _, err := range argsErrs {
 			errs = append(errs, xerrors.Errorf("field %s: %w", f.Name.Value, err))
 		}
@@ -360,7 +442,7 @@ func (p *parser) field() (*Field, []error) {
 	return f, errs
 }
 
-func (p *parser) arguments() (*Arguments, []error) {
+func (p *parser) arguments(isConst bool) (*Arguments, []error) {
 	if len(p.tokens) == 0 {
 		return nil, []error{&posError{
 			pos: p.eofPos,
@@ -398,7 +480,7 @@ func (p *parser) arguments() (*Arguments, []error) {
 			}
 			break
 		}
-		arg, argErrs := p.argument()
+		arg, argErrs := p.argument(isConst)
 		for _, err := range argErrs {
 			errs = append(errs, xerrors.Errorf("argument #%d: %w", len(args.Args)+1, err))
 		}
@@ -409,7 +491,7 @@ func (p *parser) arguments() (*Arguments, []error) {
 	return args, errs
 }
 
-func (p *parser) argument() (*Argument, []error) {
+func (p *parser) argument(isConst bool) (*Argument, []error) {
 	// Not prepending "argument:" to errors, since arguments() will prepend
 	// "argument #X:".
 
@@ -430,7 +512,7 @@ func (p *parser) argument() (*Argument, []error) {
 		}}
 	}
 	colon := p.next()
-	value, valueErrs := p.value()
+	value, valueErrs := p.value(isConst)
 	return &Argument{
 		Name:  argName,
 		Colon: colon.start,
@@ -438,7 +520,7 @@ func (p *parser) argument() (*Argument, []error) {
 	}, valueErrs
 }
 
-func (p *parser) value() (*ScalarValue, []error) {
+func (p *parser) value(isConst bool) (*InputValue, []error) {
 	if len(p.tokens) == 0 {
 		return nil, []error{&posError{
 			pos: p.eofPos,
@@ -446,40 +528,53 @@ func (p *parser) value() (*ScalarValue, []error) {
 		}}
 	}
 	switch tok := p.tokens[0]; tok.kind {
+	case dollar:
+		v, err := p.variable()
+		if err != nil {
+			return nil, []error{xerrors.Errorf("value: %w", err)}
+		}
+		val := &InputValue{VariableRef: v}
+		if isConst {
+			return val, []error{&posError{
+				pos: v.Dollar,
+				err: xerrors.New("value: found variable in constant context"),
+			}}
+		}
+		return val, nil
 	case intValue:
 		p.next()
-		return &ScalarValue{
+		return &InputValue{Scalar: &ScalarValue{
 			Start: tok.start,
 			Type:  IntScalar,
 			Raw:   tok.source,
-		}, nil
+		}}, nil
 	case floatValue:
 		p.next()
-		return &ScalarValue{
+		return &InputValue{Scalar: &ScalarValue{
 			Start: tok.start,
 			Type:  FloatScalar,
 			Raw:   tok.source,
-		}, nil
+		}}, nil
 	case stringValue:
 		p.next()
-		return &ScalarValue{
+		return &InputValue{Scalar: &ScalarValue{
 			Start: tok.start,
 			Type:  StringScalar,
 			Raw:   tok.source,
-		}, nil
+		}}, nil
 	case name:
 		p.next()
-		val := &ScalarValue{
+		val := &InputValue{Scalar: &ScalarValue{
 			Start: tok.start,
 			Raw:   tok.source,
-		}
+		}}
 		switch tok.source {
 		case "null":
-			val.Type = NullScalar
+			val.Scalar.Type = NullScalar
 		case "false", "true":
-			val.Type = BooleanScalar
+			val.Scalar.Type = BooleanScalar
 		default:
-			val.Type = EnumScalar
+			val.Scalar.Type = EnumScalar
 		}
 		return val, nil
 	default:
@@ -509,6 +604,175 @@ func (p *parser) name() (*Name, error) {
 		Start: tok.start,
 		Value: tok.source,
 	}, nil
+}
+
+func (p *parser) variable() (*Variable, error) {
+	if len(p.tokens) == 0 {
+		return nil, &posError{
+			pos: p.eofPos,
+			err: xerrors.New("variable: expected '$', got EOF"),
+		}
+	}
+	tok := p.tokens[0]
+	if tok.kind != dollar {
+		return nil, &posError{
+			pos: tok.start,
+			err: xerrors.Errorf("variable: expected '$', found %q", tok),
+		}
+	}
+	p.next()
+	varName, err := p.name()
+	if err != nil {
+		return nil, xerrors.Errorf("variable: %w", err)
+	}
+	return &Variable{
+		Dollar: tok.start,
+		Name:   varName,
+	}, nil
+}
+
+func (p *parser) variableDefinitions() (*VariableDefinitions, []error) {
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("variable definitions: expected '(', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != lparen {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("variable definitions: expected '(', found %q", p.tokens[0]),
+		}}
+	}
+	lparen := p.next()
+	varDefs := &VariableDefinitions{
+		LParen: lparen.start,
+		RParen: -1,
+	}
+	var errs []error
+	for {
+		if len(p.tokens) == 0 {
+			errs = append(errs, &posError{
+				pos: p.eofPos,
+				err: xerrors.New("variable definitions: expected '$' or ')', got EOF"),
+			})
+			break
+		}
+		if p.tokens[0].kind == rparen {
+			rparen := p.next()
+			varDefs.RParen = rparen.start
+			if len(varDefs.Defs) == 0 {
+				errs = append(errs, &posError{
+					pos: rparen.start,
+					err: xerrors.New("variable definitions: empty"),
+				})
+			}
+			break
+		}
+		def, defErrs := p.variableDefinition()
+		for _, err := range defErrs {
+			errs = append(errs, xerrors.Errorf("variable definition #%d: %w", len(varDefs.Defs)+1, err))
+		}
+		if def != nil {
+			varDefs.Defs = append(varDefs.Defs, def)
+		}
+	}
+	return varDefs, errs
+}
+
+func (p *parser) variableDefinition() (*VariableDefinition, []error) {
+	// Not prepending "variable definition:" to errors, since arguments() will
+	// prepend "variable definition #X:".
+
+	def := &VariableDefinition{
+		Colon: -1,
+	}
+	var err error
+	def.Var, err = p.variable()
+	if err != nil {
+		return nil, []error{err}
+	}
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("expected ':', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != colon {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("expected ':', got %q", p.tokens[0]),
+		}}
+	}
+	colon := p.next()
+	def.Colon = colon.start
+	var errs []error
+	def.Type, errs = p.typeRef()
+	// TODO(soon): Default value.
+	return def, errs
+}
+
+func (p *parser) typeRef() (*TypeRef, []error) {
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("type: expected name or '[', got EOF"),
+		}}
+	}
+	switch tok := p.tokens[0]; tok.kind {
+	case name:
+		n, err := p.name()
+		if err != nil {
+			return nil, []error{xerrors.Errorf("type: %w", err)}
+		}
+		if len(p.tokens) == 0 || p.tokens[0].kind != nonNull {
+			return &TypeRef{Named: n}, nil
+		}
+		bang := p.next()
+		return &TypeRef{NonNull: &NonNullType{
+			Named: n,
+			Pos:   bang.start,
+		}}, nil
+	case lbracket:
+		p.next()
+		list := &ListType{
+			LBracket: tok.start,
+			RBracket: -1,
+		}
+		var errs []error
+		list.Type, errs = p.typeRef()
+		for i := range errs {
+			errs[i] = xerrors.Errorf("list type: %w", errs[i])
+		}
+		if len(p.tokens) == 0 {
+			errs = append(errs, &posError{
+				pos: p.eofPos,
+				err: xerrors.New("list type: expected ']', got EOF"),
+			})
+			return &TypeRef{List: list}, errs
+		}
+		if p.tokens[0].kind != rbracket {
+			errs = append(errs, &posError{
+				pos: p.tokens[0].start,
+				err: xerrors.Errorf("list type: expected ']', found %q", p.tokens[0]),
+			})
+			return &TypeRef{List: list}, errs
+		}
+		list.RBracket = p.next().start
+		if len(p.tokens) == 0 || p.tokens[0].kind != nonNull {
+			return &TypeRef{List: list}, nil
+		}
+		bang := p.next()
+		return &TypeRef{NonNull: &NonNullType{
+			List: list,
+			Pos:  bang.start,
+		}}, nil
+	default:
+		return nil, []error{&posError{
+			pos: tok.start,
+			err: xerrors.Errorf("type: expected name or '[', found %q", tok),
+		}}
+	}
 }
 
 type posError struct {

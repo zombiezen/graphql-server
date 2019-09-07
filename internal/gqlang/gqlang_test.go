@@ -44,6 +44,7 @@ func TestParse(t *testing.T) {
 				Definitions: []Definition{
 					&Operation{
 						Start: 0,
+						Type:  Query,
 						Name:  &Name{Value: "MyQuery", Start: 6},
 						SelectionSet: &SelectionSet{
 							LBrace: 14,
@@ -58,11 +59,11 @@ func TestParse(t *testing.T) {
 											{
 												Name:  &Name{Value: "id", Start: 21},
 												Colon: 23,
-												Value: &ScalarValue{
+												Value: &InputValue{Scalar: &ScalarValue{
 													Start: 25,
 													Type:  IntScalar,
 													Raw:   "4",
-												},
+												}},
 											},
 										},
 									},
@@ -92,6 +93,7 @@ func TestParse(t *testing.T) {
 				Definitions: []Definition{
 					&Operation{
 						Start: 1,
+						Type:  Query,
 						SelectionSet: &SelectionSet{
 							LBrace: 1,
 							RBrace: 9,
@@ -112,6 +114,7 @@ func TestParse(t *testing.T) {
 				Definitions: []Definition{
 					&Operation{
 						Start: 1,
+						Type:  Query,
 						SelectionSet: &SelectionSet{
 							LBrace: 1,
 							RBrace: -1,
@@ -135,6 +138,7 @@ func TestParse(t *testing.T) {
 				Definitions: []Definition{
 					&Operation{
 						Start: 1,
+						Type:  Query,
 						SelectionSet: &SelectionSet{
 							LBrace: 1,
 							RBrace: 3,
@@ -153,6 +157,7 @@ func TestParse(t *testing.T) {
 				Definitions: []Definition{
 					&Operation{
 						Start: 1,
+						Type:  Query,
 						SelectionSet: &SelectionSet{
 							LBrace: 1,
 							RBrace: 9,
@@ -172,6 +177,67 @@ func TestParse(t *testing.T) {
 			},
 			wantErrs: posSet{
 				7: {},
+			},
+		},
+		{
+			name:  "Variables",
+			input: "query getProfile($devicePicSize: Int) { user { profilePic(size: $devicePicSize) } }",
+			want: &Document{
+				Definitions: []Definition{
+					&Operation{
+						Start: 0,
+						Type:  Query,
+						Name:  &Name{Value: "getProfile", Start: 6},
+						VariableDefinitions: &VariableDefinitions{
+							LParen: 16,
+							RParen: 36,
+							Defs: []*VariableDefinition{
+								{
+									Var: &Variable{
+										Dollar: 17,
+										Name:   &Name{Value: "devicePicSize", Start: 18},
+									},
+									Colon: 31,
+									Type: &TypeRef{
+										Named: &Name{Value: "Int", Start: 33},
+									},
+								},
+							},
+						},
+						SelectionSet: &SelectionSet{
+							LBrace: 38,
+							RBrace: 82,
+							Sel: []*Selection{
+								{Field: &Field{
+									Name: &Name{Value: "user", Start: 40},
+									SelectionSet: &SelectionSet{
+										LBrace: 45,
+										RBrace: 80,
+										Sel: []*Selection{
+											{Field: &Field{
+												Name: &Name{Value: "profilePic", Start: 47},
+												Arguments: &Arguments{
+													LParen: 57,
+													RParen: 78,
+													Args: []*Argument{
+														{
+															Name:  &Name{Value: "size", Start: 58},
+															Colon: 62,
+															Value: &InputValue{VariableRef: &Variable{
+																Dollar: 64,
+																Name:   &Name{Value: "devicePicSize", Start: 65},
+															}},
+														},
+													},
+												},
+											}},
+										},
+									},
+								}},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
