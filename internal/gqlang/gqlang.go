@@ -26,16 +26,14 @@ import (
 // Document is a parsed GraphQL source.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Document
 type Document struct {
-	Definitions []Definition
+	Definitions []*Definition
 }
 
 // Definition is a top-level GraphQL construct like an operation, a fragment, or
-// a type.
+// a type. Only one of its fields will be set.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Document
-type Definition interface {
-	StartPos() Pos
-	EndPos() Pos
-	IsExecutableDefinition() bool
+type Definition struct {
+	Operation *Operation
 }
 
 // Operation is a query, a mutation, or a subscription.
@@ -48,19 +46,11 @@ type Operation struct {
 	SelectionSet        *SelectionSet
 }
 
-// StartPos returns op.Start.
-func (op *Operation) StartPos() Pos {
-	return op.Start
-}
-
-// EndPos returns op.SelectionSet.RBrace.
-func (op *Operation) EndPos() Pos {
-	return op.SelectionSet.RBrace
-}
-
-// IsExecutableDefinition returns true.
-func (op *Operation) IsExecutableDefinition() bool {
-	return true
+func (op *Operation) asDefinition() *Definition {
+	if op == nil {
+		return nil
+	}
+	return &Definition{Operation: op}
 }
 
 // OperationType is one of query, mutation, or subscription.
@@ -280,15 +270,12 @@ func (p *parser) next() token {
 	return tok
 }
 
-func (p *parser) definition() (Definition, []error) {
+func (p *parser) definition() (*Definition, []error) {
 	if len(p.tokens) == 0 {
 		return nil, nil
 	}
 	op, errs := p.operation()
-	if op == nil {
-		return nil, errs
-	}
-	return op, errs
+	return op.asDefinition(), errs
 }
 
 func (p *parser) operation() (*Operation, []error) {

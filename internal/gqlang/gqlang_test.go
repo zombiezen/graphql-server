@@ -41,8 +41,8 @@ func TestParse(t *testing.T) {
 			name:  "OverviewQuery",
 			input: "query MyQuery { user(id: 4) { firstName, lastName } }\n",
 			want: &Document{
-				Definitions: []Definition{
-					&Operation{
+				Definitions: []*Definition{
+					{Operation: &Operation{
 						Start: 0,
 						Type:  Query,
 						Name:  &Name{Value: "MyQuery", Start: 6},
@@ -82,7 +82,7 @@ func TestParse(t *testing.T) {
 								}},
 							},
 						},
-					},
+					}},
 				},
 			},
 		},
@@ -90,8 +90,8 @@ func TestParse(t *testing.T) {
 			name:  "Shorthand",
 			input: " { field } ",
 			want: &Document{
-				Definitions: []Definition{
-					&Operation{
+				Definitions: []*Definition{
+					{Operation: &Operation{
 						Start: 1,
 						Type:  Query,
 						SelectionSet: &SelectionSet{
@@ -103,7 +103,7 @@ func TestParse(t *testing.T) {
 								}},
 							},
 						},
-					},
+					}},
 				},
 			},
 		},
@@ -111,8 +111,8 @@ func TestParse(t *testing.T) {
 			name:  "MissingClosingBrace",
 			input: " { field  ",
 			want: &Document{
-				Definitions: []Definition{
-					&Operation{
+				Definitions: []*Definition{
+					{Operation: &Operation{
 						Start: 1,
 						Type:  Query,
 						SelectionSet: &SelectionSet{
@@ -124,7 +124,7 @@ func TestParse(t *testing.T) {
 								}},
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantErrs: posSet{
@@ -135,15 +135,15 @@ func TestParse(t *testing.T) {
 			name:  "EmptyOperation",
 			input: " { } ",
 			want: &Document{
-				Definitions: []Definition{
-					&Operation{
+				Definitions: []*Definition{
+					{Operation: &Operation{
 						Start: 1,
 						Type:  Query,
 						SelectionSet: &SelectionSet{
 							LBrace: 1,
 							RBrace: 3,
 						},
-					},
+					}},
 				},
 			},
 			wantErrs: posSet{
@@ -154,8 +154,8 @@ func TestParse(t *testing.T) {
 			name:  "EmptyArgs",
 			input: " { foo() } ",
 			want: &Document{
-				Definitions: []Definition{
-					&Operation{
+				Definitions: []*Definition{
+					{Operation: &Operation{
 						Start: 1,
 						Type:  Query,
 						SelectionSet: &SelectionSet{
@@ -172,7 +172,7 @@ func TestParse(t *testing.T) {
 								}},
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantErrs: posSet{
@@ -183,8 +183,8 @@ func TestParse(t *testing.T) {
 			name:  "Variables",
 			input: "query getProfile($devicePicSize: Int) { user { profilePic(size: $devicePicSize) } }",
 			want: &Document{
-				Definitions: []Definition{
-					&Operation{
+				Definitions: []*Definition{
+					{Operation: &Operation{
 						Start: 0,
 						Type:  Query,
 						Name:  &Name{Value: "getProfile", Start: 6},
@@ -236,7 +236,7 @@ func TestParse(t *testing.T) {
 								}},
 							},
 						},
-					},
+					}},
 				},
 			},
 		},
