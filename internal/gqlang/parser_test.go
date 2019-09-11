@@ -431,3 +431,72 @@ input ItemInput {
 		})
 	}
 }
+
+func BenchmarkParse(b *testing.B) {
+	b.Run("Schema", func(b *testing.B) {
+		const input = `
+"""
+The DateTime scalar type represents a DateTime. The DateTime is serialized as an RFC 3339 quoted string
+"""
+scalar DateTime
+
+"""A single task in a project"""
+type Item {
+  completed: Boolean!
+  completedAt: DateTime
+  createdAt: DateTime!
+  id: ID!
+  text: String!
+}
+
+"""Fields for creating an Item"""
+input ItemInput {
+  projectId: ID!
+  text: String!
+}
+
+type Mutation {
+  """Create a new item"""
+  createItem(input: ItemInput!): Item
+
+  """Create a new project"""
+  createProject(name: String!): Project
+
+  """Delete a project"""
+  deleteProject(id: ID!): ID
+}
+
+"""A group of tasks"""
+type Project {
+  createdAt: DateTime!
+  id: ID!
+  items(
+    """Whether to include completed items in the list"""
+    includeCompleted: Boolean
+  ): [Item]
+  name: String!
+}
+
+type Query {
+  """The inbox project"""
+  inbox(date: String): Project
+
+  """List of all active projects"""
+  projects: [Project]
+}
+`
+		b.SetBytes(int64(len(input)))
+		for i := 0; i < b.N; i++ {
+			if _, errs := Parse(input); len(errs) > 0 {
+				for _, err := range errs {
+					if p, ok := ErrorPosition(err); ok {
+						b.Errorf("%v: %v", p, err)
+					} else {
+						b.Error(err)
+					}
+				}
+				b.FailNow()
+			}
+		}
+	})
+}
