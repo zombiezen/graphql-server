@@ -470,8 +470,33 @@ input ItemInput {
 }
 
 func BenchmarkParse(b *testing.B) {
-	b.Run("Schema", func(b *testing.B) {
-		const input = `
+	benches := []struct {
+		name  string
+		input string
+	}{
+		{
+			name: "Operation",
+			input: `
+query ProjectList {
+	inbox {
+		id
+		items(includeCompleted: true) {
+			id
+			name
+			labels { name }
+		}
+	}
+
+	projects {
+		id
+		name
+	}
+}
+`,
+		},
+		{
+			name: "Schema",
+			input: `
 """
 The DateTime scalar type represents a DateTime. The DateTime is serialized as an RFC 3339 quoted string
 """
@@ -521,19 +546,24 @@ type Query {
   """List of all active projects"""
   projects: [Project]
 }
-`
-		b.SetBytes(int64(len(input)))
-		for i := 0; i < b.N; i++ {
-			if _, errs := Parse(input); len(errs) > 0 {
-				for _, err := range errs {
-					if p, ok := ErrorPosition(err); ok {
-						b.Errorf("%v: %v", p, err)
-					} else {
-						b.Error(err)
+`,
+		},
+	}
+	for _, bench := range benches {
+		b.Run(bench.name, func(b *testing.B) {
+			b.SetBytes(int64(len(bench.input)))
+			for i := 0; i < b.N; i++ {
+				if _, errs := Parse(bench.input); len(errs) > 0 {
+					for _, err := range errs {
+						if p, ok := ErrorPosition(err); ok {
+							b.Errorf("%v: %v", p, err)
+						} else {
+							b.Error(err)
+						}
 					}
+					b.FailNow()
 				}
-				b.FailNow()
 			}
-		}
-	})
+		})
+	}
 }
