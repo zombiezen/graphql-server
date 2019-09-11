@@ -161,6 +161,13 @@ type Variable struct {
 	Name   *Name
 }
 
+// DefaultValue specifies the default value of an input.
+// https://graphql.github.io/graphql-spec/June2018/#DefaultValue
+type DefaultValue struct {
+	Eq    Pos
+	Value *InputValue
+}
+
 // String returns the variable in the form "$foo".
 func (v *Variable) String() string {
 	return "$" + v.Name.String()
@@ -177,9 +184,10 @@ type VariableDefinitions struct {
 // VariableDefinition is an element of VariableDefinitions.
 // https://graphql.github.io/graphql-spec/June2018/#Variable
 type VariableDefinition struct {
-	Var   *Variable
-	Colon Pos
-	Type  *TypeRef
+	Var     *Variable
+	Colon   Pos
+	Type    *TypeRef
+	Default *DefaultValue
 }
 
 // A Name is an identifier.
@@ -355,5 +363,5 @@ type InputValueDefinition struct {
 	Name        *Name
 	Colon       Pos
 	Type        *TypeRef
-	// TODO(soon): Default value
+	Default     *DefaultValue
 }

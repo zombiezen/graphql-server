@@ -390,6 +390,43 @@ input ItemInput {
 				},
 			},
 		},
+		{
+			name: "InputObjectTypeWithDefaultValues",
+			input: `input Filter {
+	includeCompleted: Boolean! = false
+}
+`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{InputObject: &InputObjectTypeDefinition{
+						Keyword: 0,
+						Name:    &Name{Value: "Filter", Start: 6},
+						Fields: &InputFieldsDefinition{
+							LBrace: 13,
+							Defs: []*InputValueDefinition{
+								{
+									Name:  &Name{Value: "includeCompleted", Start: 16},
+									Colon: 32,
+									Type: &TypeRef{NonNull: &NonNullType{
+										Named: &Name{Value: "Boolean", Start: 34},
+										Pos:   41,
+									}},
+									Default: &DefaultValue{
+										Eq: 43,
+										Value: &InputValue{Scalar: &ScalarValue{
+											Start: 45,
+											Type:  BooleanScalar,
+											Raw:   "false",
+										}},
+									},
+								},
+							},
+							RBrace: 51,
+						},
+					}}},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -472,7 +509,7 @@ type Project {
   id: ID!
   items(
     """Whether to include completed items in the list"""
-    includeCompleted: Boolean
+    includeCompleted: Boolean = false
   ): [Item]
   name: String!
 }

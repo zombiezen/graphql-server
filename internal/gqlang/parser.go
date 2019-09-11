@@ -448,13 +448,13 @@ func (p *parser) variableDefinition() (*VariableDefinition, []error) {
 		return nil, []error{err}
 	}
 	if len(p.tokens) == 0 {
-		return nil, []error{&posError{
+		return def, []error{&posError{
 			pos: p.eofPos,
 			err: xerrors.New("expected ':', got EOF"),
 		}}
 	}
 	if p.tokens[0].kind != colon {
-		return nil, []error{&posError{
+		return def, []error{&posError{
 			pos: p.tokens[0].start,
 			err: xerrors.Errorf("expected ':', got %q", p.tokens[0]),
 		}}
@@ -463,8 +463,29 @@ func (p *parser) variableDefinition() (*VariableDefinition, []error) {
 	def.Colon = colon.start
 	var errs []error
 	def.Type, errs = p.typeRef()
-	// TODO(soon): Default value.
+	if len(errs) > 0 {
+		return def, errs
+	}
+	def.Default, errs = p.optionalDefaultValue()
 	return def, errs
+}
+
+func (p *parser) optionalDefaultValue() (*DefaultValue, []error) {
+	if len(p.tokens) == 0 {
+		return nil, nil
+	}
+	if p.tokens[0].kind != equals {
+		return nil, nil
+	}
+	defaultValue := &DefaultValue{
+		Eq: p.next().start,
+	}
+	var errs []error
+	defaultValue.Value, errs = p.value(true)
+	for i := range errs {
+		errs[i] = xerrors.Errorf("default value: %w", errs[i])
+	}
+	return defaultValue, errs
 }
 
 func (p *parser) typeRef() (*TypeRef, []error) {
@@ -771,7 +792,10 @@ func (p *parser) inputValueDefinition() (*InputValueDefinition, []error) {
 	field.Colon = p.next().start
 	var errs []error
 	field.Type, errs = p.typeRef()
-	// TODO(soon): default value.
+	if len(errs) > 0 {
+		return field, errs
+	}
+	field.Default, errs = p.optionalDefaultValue()
 	return field, errs
 }
 
