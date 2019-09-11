@@ -68,8 +68,51 @@ func (p *parser) definition() (*Definition, []error) {
 	if len(p.tokens) == 0 {
 		return nil, nil
 	}
-	op, errs := p.operation()
-	return op.asDefinition(), errs
+	if (p.tokens[0].kind == name && (p.tokens[0].source == "query" || p.tokens[0].source == "mutation" || p.tokens[0].source == "subscription")) || p.tokens[0].kind == lbrace {
+		// Operations do not permit a description before them.
+		op, errs := p.operation()
+		return op.asDefinition(), errs
+	}
+	var keywordTok token
+	switch p.tokens[0].kind {
+	case name:
+		keywordTok = p.tokens[0]
+	case stringValue:
+		if len(p.tokens) == 1 {
+			return nil, []error{&posError{
+				pos: p.eofPos,
+				err: xerrors.New("type definition: expected keyword, got EOF"),
+			}}
+		}
+		if p.tokens[1].kind != name {
+			return nil, []error{&posError{
+				pos: p.tokens[1].start,
+				err: xerrors.Errorf("type definition: expected keyword, found %q", p.tokens[1]),
+			}}
+		}
+		keywordTok = p.tokens[1]
+	default:
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("type definition: expected string or keyword, found %q", p.tokens[0]),
+		}}
+	}
+	switch keywordTok.source {
+	case "scalar":
+		def, errs := p.scalarTypeDefinition()
+		return def.asTypeDefinition().asDefinition(), errs
+	case "type":
+		def, errs := p.objectTypeDefinition()
+		return def.asTypeDefinition().asDefinition(), errs
+	case "input":
+		def, errs := p.inputObjectTypeDefinition()
+		return def.asTypeDefinition().asDefinition(), errs
+	default:
+		return nil, []error{&posError{
+			pos: keywordTok.start,
+			err: xerrors.Errorf("definition: expected keyword, found %q", keywordTok),
+		}}
+	}
 }
 
 func (p *parser) operation() (*Operation, []error) {
@@ -145,49 +188,28 @@ func (p *parser) operation() (*Operation, []error) {
 }
 
 func (p *parser) selectionSet() (*SelectionSet, []error) {
-	if len(p.tokens) == 0 {
-		return nil, []error{xerrors.New("selection set: expected '{', got EOF")}
-	}
-	if p.tokens[0].kind != lbrace {
-		return nil, []error{&posError{
-			pos: p.tokens[0].start,
-			err: xerrors.Errorf("selection set: expected '{', got %q", p.tokens[0]),
-		}}
-	}
-	lbrace := p.next()
-	set := &SelectionSet{
-		LBrace: lbrace.start,
-		RBrace: -1,
-	}
+	set := new(SelectionSet)
 	var errs []error
-	for {
-		if len(p.tokens) == 0 {
-			errs = append(errs, &posError{
-				pos: p.eofPos,
-				err: xerrors.New("selection set: expected field or '}', got EOF"),
-			})
-			break
-		}
-		if p.tokens[0].kind == rbrace {
-			rbrace := p.next()
-			set.RBrace = rbrace.start
-			if len(set.Sel) == 0 {
-				errs = append(errs, &posError{
-					pos: rbrace.start,
-					err: xerrors.New("selection set: empty"),
-				})
-			}
-			break
-		}
-		field, fieldErrs := p.field()
-		for _, err := range fieldErrs {
-			errs = append(errs, xerrors.Errorf("selection set: %w", err))
-		}
+	set.LBrace, set.RBrace, errs = p.group(lbrace, rbrace, "selection", func() []error {
+		field, errs := p.field()
 		if field != nil {
 			set.Sel = append(set.Sel, &Selection{
 				Field: field,
 			})
 		}
+		return errs
+	})
+	for i := range errs {
+		errs[i] = xerrors.Errorf("selection set: %w", errs[i])
+	}
+	if set.LBrace == -1 {
+		return nil, errs
+	}
+	if set.RBrace >= 0 && len(set.Sel) == 0 {
+		errs = append(errs, &posError{
+			pos: set.RBrace,
+			err: xerrors.New("selection set: empty"),
+		})
 	}
 	return set, errs
 }
@@ -224,50 +246,26 @@ func (p *parser) field() (*Field, []error) {
 }
 
 func (p *parser) arguments(isConst bool) (*Arguments, []error) {
-	if len(p.tokens) == 0 {
-		return nil, []error{&posError{
-			pos: p.eofPos,
-			err: xerrors.New("arguments: expected '(', got EOF"),
-		}}
-	}
-	if p.tokens[0].kind != lparen {
-		return nil, []error{&posError{
-			pos: p.tokens[0].start,
-			err: xerrors.Errorf("arguments: expected '(', found %q", p.tokens[0]),
-		}}
-	}
-	lparen := p.next()
-	args := &Arguments{
-		LParen: lparen.start,
-		RParen: -1,
-	}
+	args := new(Arguments)
 	var errs []error
-	for {
-		if len(p.tokens) == 0 {
-			errs = append(errs, &posError{
-				pos: p.eofPos,
-				err: xerrors.New("arguments: expected name or ')', got EOF"),
-			})
-			break
-		}
-		if p.tokens[0].kind == rparen {
-			rparen := p.next()
-			args.RParen = rparen.start
-			if len(args.Args) == 0 {
-				errs = append(errs, &posError{
-					pos: rparen.start,
-					err: xerrors.New("arguments: empty"),
-				})
-			}
-			break
-		}
-		arg, argErrs := p.argument(isConst)
-		for _, err := range argErrs {
-			errs = append(errs, xerrors.Errorf("argument #%d: %w", len(args.Args)+1, err))
-		}
+	args.LParen, args.RParen, errs = p.group(lparen, rparen, "argument", func() []error {
+		arg, errs := p.argument(isConst)
 		if arg != nil {
 			args.Args = append(args.Args, arg)
 		}
+		return errs
+	})
+	for i := range errs {
+		errs[i] = xerrors.Errorf("arguments: %w", errs[i])
+	}
+	if args.LParen == -1 {
+		return nil, errs
+	}
+	if args.RParen >= 0 && len(args.Args) == 0 {
+		errs = append(errs, &posError{
+			pos: args.RParen,
+			err: xerrors.New("arguments: empty"),
+		})
 	}
 	return args, errs
 }
@@ -413,57 +411,33 @@ func (p *parser) variable() (*Variable, error) {
 }
 
 func (p *parser) variableDefinitions() (*VariableDefinitions, []error) {
-	if len(p.tokens) == 0 {
-		return nil, []error{&posError{
-			pos: p.eofPos,
-			err: xerrors.New("variable definitions: expected '(', got EOF"),
-		}}
-	}
-	if p.tokens[0].kind != lparen {
-		return nil, []error{&posError{
-			pos: p.tokens[0].start,
-			err: xerrors.Errorf("variable definitions: expected '(', found %q", p.tokens[0]),
-		}}
-	}
-	lparen := p.next()
-	varDefs := &VariableDefinitions{
-		LParen: lparen.start,
-		RParen: -1,
-	}
+	varDefs := new(VariableDefinitions)
 	var errs []error
-	for {
-		if len(p.tokens) == 0 {
-			errs = append(errs, &posError{
-				pos: p.eofPos,
-				err: xerrors.New("variable definitions: expected '$' or ')', got EOF"),
-			})
-			break
-		}
-		if p.tokens[0].kind == rparen {
-			rparen := p.next()
-			varDefs.RParen = rparen.start
-			if len(varDefs.Defs) == 0 {
-				errs = append(errs, &posError{
-					pos: rparen.start,
-					err: xerrors.New("variable definitions: empty"),
-				})
-			}
-			break
-		}
-		def, defErrs := p.variableDefinition()
-		for _, err := range defErrs {
-			errs = append(errs, xerrors.Errorf("variable definition #%d: %w", len(varDefs.Defs)+1, err))
-		}
+	varDefs.LParen, varDefs.RParen, errs = p.group(lparen, rparen, "variable definition", func() []error {
+		def, errs := p.variableDefinition()
 		if def != nil {
 			varDefs.Defs = append(varDefs.Defs, def)
 		}
+		return errs
+	})
+	for i := range errs {
+		errs[i] = xerrors.Errorf("variable definitions: %w", errs[i])
+	}
+	if varDefs.LParen == -1 {
+		return nil, errs
+	}
+	if varDefs.RParen >= 0 && len(varDefs.Defs) == 0 {
+		errs = append(errs, &posError{
+			pos: varDefs.RParen,
+			err: xerrors.New("variable definitions: empty"),
+		})
 	}
 	return varDefs, errs
 }
 
 func (p *parser) variableDefinition() (*VariableDefinition, []error) {
-	// Not prepending "variable definition:" to errors, since arguments() will
-	// prepend "variable definition #X:".
+	// Not prepending "variable definition:" to errors, since
+	// variableDefinitions() will prepend "variable definition #X:".
 
 	def := &VariableDefinition{
 		Colon: -1,
@@ -554,6 +528,315 @@ func (p *parser) typeRef() (*TypeRef, []error) {
 			err: xerrors.Errorf("type: expected name or '[', found %q", tok),
 		}}
 	}
+}
+
+func (p *parser) optionalDescription() *Description {
+	if len(p.tokens) == 0 {
+		return nil
+	}
+	tok := p.tokens[0]
+	if tok.kind != stringValue {
+		return nil
+	}
+	p.next()
+	return &Description{
+		Start: tok.start,
+		Raw:   tok.source,
+	}
+}
+
+func (p *parser) scalarTypeDefinition() (*ScalarTypeDefinition, []error) {
+	def := new(ScalarTypeDefinition)
+	def.Description = p.optionalDescription()
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("scalar type definition: expected 'scalar', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != name || p.tokens[0].source != "scalar" {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("scalar type definition: expected 'scalar', found %q", p.tokens[0]),
+		}}
+	}
+	def.Keyword = p.next().start
+	var err error
+	def.Name, err = p.name()
+	if err != nil {
+		return def, []error{xerrors.Errorf("scalar type definition: %w", err)}
+	}
+	return def, nil
+}
+
+func (p *parser) objectTypeDefinition() (*ObjectTypeDefinition, []error) {
+	def := new(ObjectTypeDefinition)
+	def.Description = p.optionalDescription()
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("object type definition: expected 'type', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != name || p.tokens[0].source != "type" {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("object type definition: expected 'type', found %q", p.tokens[0]),
+		}}
+	}
+	def.Keyword = p.next().start
+	var err error
+	def.Name, err = p.name()
+	if err != nil {
+		return def, []error{xerrors.Errorf("object type definition: %w", err)}
+	}
+	var errs []error
+	def.Fields, errs = p.fieldsDefinition()
+	for i := range errs {
+		errs[i] = xerrors.Errorf("object type definition %s: %w", def.Name.Value, errs[i])
+	}
+	return def, errs
+}
+
+func (p *parser) fieldsDefinition() (*FieldsDefinition, []error) {
+	fields := new(FieldsDefinition)
+	var errs []error
+	fields.LBrace, fields.RBrace, errs = p.group(lbrace, rbrace, "field definition", func() []error {
+		def, errs := p.fieldDefinition()
+		if def != nil {
+			fields.Defs = append(fields.Defs, def)
+		}
+		return errs
+	})
+	for i := range errs {
+		errs[i] = xerrors.Errorf("fields definition: %w", errs[i])
+	}
+	if fields.LBrace == -1 {
+		return nil, errs
+	}
+	if fields.RBrace >= 0 && len(fields.Defs) == 0 {
+		errs = append(errs, &posError{
+			pos: fields.RBrace,
+			err: xerrors.New("fields definition: empty"),
+		})
+	}
+	return fields, errs
+}
+
+func (p *parser) fieldDefinition() (*FieldDefinition, []error) {
+	// Not prepending "field definition:" to errors, since
+	// fieldDefinitions() will prepend "field definition #X:".
+
+	field := new(FieldDefinition)
+	field.Description = p.optionalDescription()
+	var err error
+	field.Name, err = p.name()
+	if err != nil {
+		return nil, []error{err}
+	}
+	if len(p.tokens) == 0 {
+		return field, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("expected '(' or ':', got EOF"),
+		}}
+	}
+	var errs []error
+	if p.tokens[0].kind == lparen {
+		var argsErrs []error
+		field.Args, argsErrs = p.argumentsDefinition()
+		errs = append(errs, argsErrs...)
+		if len(p.tokens) == 0 {
+			return field, append(errs, &posError{
+				pos: p.eofPos,
+				err: xerrors.New("expected ':', got EOF"),
+			})
+		}
+	}
+	if p.tokens[0].kind != colon {
+		return field, append(errs, &posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("expected ':', found %q", p.tokens[0]),
+		})
+	}
+	field.Colon = p.next().start
+	var typeErrs []error
+	field.Type, typeErrs = p.typeRef()
+	errs = append(errs, typeErrs...)
+	return field, errs
+}
+
+func (p *parser) argumentsDefinition() (*ArgumentsDefinition, []error) {
+	args := new(ArgumentsDefinition)
+	var errs []error
+	args.LParen, args.RParen, errs = p.group(lparen, rparen, "input value definition", func() []error {
+		def, errs := p.inputValueDefinition()
+		if def != nil {
+			args.Args = append(args.Args, def)
+		}
+		return errs
+	})
+	for i := range errs {
+		errs[i] = xerrors.Errorf("arguments definition: %w", errs[i])
+	}
+	if args.LParen == -1 {
+		return nil, errs
+	}
+	if args.RParen >= 0 && len(args.Args) == 0 {
+		errs = append(errs, &posError{
+			pos: args.RParen,
+			err: xerrors.New("input fields definition: empty"),
+		})
+	}
+	return args, errs
+}
+
+func (p *parser) inputObjectTypeDefinition() (*InputObjectTypeDefinition, []error) {
+	def := new(InputObjectTypeDefinition)
+	def.Description = p.optionalDescription()
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("input object type definition: expected 'input', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != name || p.tokens[0].source != "input" {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("input object type definition: expected 'input', found %q", p.tokens[0]),
+		}}
+	}
+	def.Keyword = p.next().start
+	var err error
+	def.Name, err = p.name()
+	if err != nil {
+		return def, []error{xerrors.Errorf("input object type definition: %w", err)}
+	}
+	var errs []error
+	def.Fields, errs = p.inputFieldsDefinition()
+	for i := range errs {
+		errs[i] = xerrors.Errorf("input object type definition %s: %w", def.Name.Value, errs[i])
+	}
+	return def, errs
+}
+
+func (p *parser) inputFieldsDefinition() (*InputFieldsDefinition, []error) {
+	fields := new(InputFieldsDefinition)
+	var errs []error
+	fields.LBrace, fields.RBrace, errs = p.group(lbrace, rbrace, "input value definition", func() []error {
+		def, errs := p.inputValueDefinition()
+		if def != nil {
+			fields.Defs = append(fields.Defs, def)
+		}
+		return errs
+	})
+	for i := range errs {
+		errs[i] = xerrors.Errorf("input fields definition: %w", errs[i])
+	}
+	if fields.LBrace == -1 {
+		return nil, errs
+	}
+	if fields.RBrace >= 0 && len(fields.Defs) == 0 {
+		errs = append(errs, &posError{
+			pos: fields.RBrace,
+			err: xerrors.New("input fields definition: empty"),
+		})
+	}
+	return fields, errs
+}
+
+func (p *parser) inputValueDefinition() (*InputValueDefinition, []error) {
+	// Not prepending "input value definition:" to errors, since
+	// argumentsDefinition() and inputFieldDefinitions() will prepend
+	// "input value definition #X:".
+
+	field := new(InputValueDefinition)
+	field.Description = p.optionalDescription()
+	var err error
+	field.Name, err = p.name()
+	if err != nil {
+		return nil, []error{err}
+	}
+	if len(p.tokens) == 0 {
+		return field, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("expected ':', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != colon {
+		return field, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("expected ':', found %q", p.tokens[0]),
+		}}
+	}
+	field.Colon = p.next().start
+	var errs []error
+	field.Type, errs = p.typeRef()
+	// TODO(soon): default value.
+	return field, errs
+}
+
+// group parses a list of the given rule started and ended by the given token kind.
+func (p *parser) group(ldelim, rdelim tokenKind, ruleName string, rule func() []error) (start, end Pos, _ []error) {
+	if len(p.tokens) == 0 {
+		return -1, -1, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.Errorf("expected '%s', got EOF", punctuatorStrings[ldelim]),
+		}}
+	}
+	if p.tokens[0].kind != ldelim {
+		return -1, -1, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("expected '%s', found %q", punctuatorStrings[ldelim], p.tokens[0]),
+		}}
+	}
+	start, end = p.next().start, -1
+	var errs []error
+	for i := 1; ; i++ {
+		if len(p.tokens) == 0 {
+			errs = append(errs, &posError{
+				pos: p.eofPos,
+				err: xerrors.Errorf("expected %s or '%s', got EOF", ruleName, punctuatorStrings[rdelim]),
+			})
+			break
+		}
+		if p.tokens[0].kind == rdelim {
+			end = p.next().start
+			break
+		}
+		nleft := len(p.tokens)
+		ruleErrs := rule()
+		for _, err := range ruleErrs {
+			errs = append(errs, xerrors.Errorf("%s #%d: %w", ruleName, i, err))
+		}
+		if len(p.tokens) == nleft {
+			end = p.skipTo(rdelim)
+			break
+		}
+	}
+	return start, end, errs
+}
+
+func (p *parser) skipTo(rdelim tokenKind) Pos {
+	stk := []tokenKind{rdelim}
+	for ; len(p.tokens) > 0 && len(stk) > 0; p.tokens = p.tokens[1:] {
+		switch kind := p.tokens[0].kind; kind {
+		case lparen:
+			stk = append(stk, rparen)
+		case lbrace:
+			stk = append(stk, rbrace)
+		case lbracket:
+			stk = append(stk, rbracket)
+		case rparen, rbrace, rbracket:
+			for len(stk) > 0 && stk[len(stk)-1] != kind {
+				stk = stk[:len(stk)-1]
+			}
+			if len(stk) == 1 {
+				// Matches top of stack.
+				return p.tokens[0].start
+			}
+		}
+	}
+	return -1
 }
 
 type posError struct {

@@ -30,6 +30,7 @@ type Document struct {
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Document
 type Definition struct {
 	Operation *Operation
+	Type      *TypeDefinition
 }
 
 // Operation is a query, a mutation, or a subscription.
@@ -74,7 +75,7 @@ func (typ OperationType) String() string {
 }
 
 // SelectionSet is the set of information an operation requests.
-// https://graphql.github.io/graphql-spec/June2018/#sec-Selection-Sets
+// https://graphql.github.io/graphql-spec/June2018/#SelectionSet
 type SelectionSet struct {
 	LBrace Pos
 	Sel    []*Selection
@@ -205,7 +206,7 @@ type TypeRef struct {
 }
 
 // ListType declares a homogenous sequence of another type.
-// https://graphql.github.io/graphql-spec/June2018/#Type
+// https://graphql.github.io/graphql-spec/June2018/#ListType
 type ListType struct {
 	LBracket Pos
 	Type     *TypeRef
@@ -218,4 +219,141 @@ type NonNullType struct {
 	Named *Name
 	List  *ListType
 	Pos   Pos
+}
+
+// A Description is a string that documents a type system definition.
+// https://graphql.github.io/graphql-spec/June2018/#Description
+type Description struct {
+	Start Pos
+	Raw   string
+}
+
+// TypeDefinition holds a type definition.
+// https://graphql.github.io/graphql-spec/June2018/#TypeDefinition
+type TypeDefinition struct {
+	// One of the following must be non-nil:
+
+	Scalar      *ScalarTypeDefinition
+	Object      *ObjectTypeDefinition
+	InputObject *InputObjectTypeDefinition
+}
+
+// Description returns the type definition's description or nil if it does not
+// have one.
+func (defn *TypeDefinition) Description() *Description {
+	switch {
+	case defn == nil:
+		return nil
+	case defn.Scalar != nil:
+		return defn.Scalar.Description
+	case defn.Object != nil:
+		return defn.Object.Description
+	case defn.InputObject != nil:
+		return defn.InputObject.Description
+	default:
+		return nil
+	}
+}
+
+// Name returns the type definition's name.
+func (defn *TypeDefinition) Name() *Name {
+	switch {
+	case defn == nil:
+		return nil
+	case defn.Scalar != nil:
+		return defn.Scalar.Name
+	case defn.Object != nil:
+		return defn.Object.Name
+	case defn.InputObject != nil:
+		return defn.InputObject.Name
+	default:
+		return nil
+	}
+}
+
+func (defn *TypeDefinition) asDefinition() *Definition {
+	return &Definition{Type: defn}
+}
+
+// ScalarTypeDefinition names a scalar type.
+// https://graphql.github.io/graphql-spec/June2018/#ScalarTypeDefinition
+type ScalarTypeDefinition struct {
+	Description *Description
+	Keyword     Pos
+	Name        *Name
+}
+
+func (defn *ScalarTypeDefinition) asTypeDefinition() *TypeDefinition {
+	return &TypeDefinition{Scalar: defn}
+}
+
+// ObjectTypeDefinition names an output object type.
+// https://graphql.github.io/graphql-spec/June2018/#ObjectTypeDefinition
+type ObjectTypeDefinition struct {
+	Description *Description
+	Keyword     Pos
+	Name        *Name
+	Fields      *FieldsDefinition
+}
+
+func (defn *ObjectTypeDefinition) asTypeDefinition() *TypeDefinition {
+	return &TypeDefinition{Object: defn}
+}
+
+// FieldsDefinition is the list of fields in an ObjectTypeDefinition.
+// https://graphql.github.io/graphql-spec/June2018/#FieldsDefinition
+type FieldsDefinition struct {
+	LBrace Pos
+	Defs   []*FieldDefinition
+	RBrace Pos
+}
+
+// FieldDefinition specifies a single field in an ObjectTypeDefinition.
+// https://graphql.github.io/graphql-spec/June2018/#FieldsDefinition
+type FieldDefinition struct {
+	Description *Description
+	Name        *Name
+	Args        *ArgumentsDefinition
+	Colon       Pos
+	Type        *TypeRef
+}
+
+// ArgumentsDefinition specifies the arguments for a FieldDefinition.
+// https://graphql.github.io/graphql-spec/June2018/#ArgumentsDefinition
+type ArgumentsDefinition struct {
+	LParen Pos
+	Args   []*InputValueDefinition
+	RParen Pos
+}
+
+// InputObjectTypeDefinition names an input object type.
+// https://graphql.github.io/graphql-spec/June2018/#InputObjectTypeDefinition
+type InputObjectTypeDefinition struct {
+	Description *Description
+	Keyword     Pos
+	Name        *Name
+	Fields      *InputFieldsDefinition
+}
+
+func (defn *InputObjectTypeDefinition) asTypeDefinition() *TypeDefinition {
+	return &TypeDefinition{InputObject: defn}
+}
+
+// InputFieldsDefinition is the list of fields in an InputObjectTypeDefinition.
+// https://graphql.github.io/graphql-spec/June2018/#InputFieldsDefinition
+type InputFieldsDefinition struct {
+	LBrace Pos
+	Defs   []*InputValueDefinition
+	RBrace Pos
+}
+
+// InputValueDefinition specifies an argument in a FieldDefinition or a field
+// in an InputObjectTypeDefinition.
+// https://graphql.github.io/graphql-spec/June2018/#InputValueDefinition
+type InputValueDefinition struct {
+	Description *Description
+	Name        *Name
+	Colon       Pos
+	Type        *TypeRef
+	// TODO(soon): Default value
 }

@@ -379,6 +379,22 @@ var punctuators = map[string]tokenKind{
 	"|":   or,
 }
 
+var punctuatorStrings = map[tokenKind]string{
+	nonNull:  "!",
+	dollar:   "$",
+	lparen:   "(",
+	rparen:   ")",
+	ellipsis: "...",
+	colon:    ":",
+	equals:   "=",
+	atSign:   "@",
+	lbracket: "[",
+	rbracket: "]",
+	lbrace:   "{",
+	rbrace:   "}",
+	or:       "|",
+}
+
 func (kind tokenKind) String() string {
 	switch kind {
 	case unknown:

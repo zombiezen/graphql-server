@@ -240,6 +240,156 @@ func TestParse(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "ScalarType",
+			input: `"""
+An RFC 3339 datetime
+"""
+scalar DateTime
+`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{Scalar: &ScalarTypeDefinition{
+						Description: &Description{
+							Start: 0,
+							Raw:   "\"\"\"\nAn RFC 3339 datetime\n\"\"\"",
+						},
+						Keyword: 29,
+						Name:    &Name{Value: "DateTime", Start: 36},
+					}}},
+				},
+			},
+		},
+		{
+			name: "ObjectType",
+			input: `"A single task in a project"
+type Item {
+	id: ID!
+	completedAt: DateTime
+}
+`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{Object: &ObjectTypeDefinition{
+						Description: &Description{
+							Start: 0,
+							Raw:   `"A single task in a project"`,
+						},
+						Keyword: 29,
+						Name:    &Name{Value: "Item", Start: 34},
+						Fields: &FieldsDefinition{
+							LBrace: 39,
+							RBrace: 73,
+							Defs: []*FieldDefinition{
+								{
+									Name:  &Name{Value: "id", Start: 42},
+									Colon: 44,
+									Type: &TypeRef{
+										NonNull: &NonNullType{
+											Named: &Name{Value: "ID", Start: 46},
+											Pos:   48,
+										},
+									},
+								},
+								{
+									Name:  &Name{Value: "completedAt", Start: 51},
+									Colon: 62,
+									Type: &TypeRef{
+										Named: &Name{Value: "DateTime", Start: 64},
+									},
+								},
+							},
+						},
+					}}},
+				},
+			},
+		},
+		{
+			name: "ObjectTypeWithFieldArgs",
+			input: `type Query {
+	project(id: ID!): Project
+}
+`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{Object: &ObjectTypeDefinition{
+						Keyword: 0,
+						Name:    &Name{Value: "Query", Start: 5},
+						Fields: &FieldsDefinition{
+							LBrace: 11,
+							Defs: []*FieldDefinition{
+								{
+									Name: &Name{Value: "project", Start: 14},
+									Args: &ArgumentsDefinition{
+										LParen: 21,
+										Args: []*InputValueDefinition{
+											{
+												Name:  &Name{Value: "id", Start: 22},
+												Colon: 24,
+												Type: &TypeRef{NonNull: &NonNullType{
+													Named: &Name{Value: "ID", Start: 26},
+													Pos:   28,
+												}},
+											},
+										},
+										RParen: 29,
+									},
+									Colon: 30,
+									Type: &TypeRef{
+										Named: &Name{Value: "Project", Start: 32},
+									},
+								},
+							},
+							RBrace: 40,
+						},
+					}}},
+				},
+			},
+		},
+		{
+			name: "InputObjectType",
+			input: `"Parameters for creating an item"
+input ItemInput {
+	projectId: ID
+	text: String!
+}
+`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{InputObject: &InputObjectTypeDefinition{
+						Description: &Description{
+							Start: 0,
+							Raw:   `"Parameters for creating an item"`,
+						},
+						Keyword: 34,
+						Name:    &Name{Value: "ItemInput", Start: 40},
+						Fields: &InputFieldsDefinition{
+							LBrace: 50,
+							RBrace: 82,
+							Defs: []*InputValueDefinition{
+								{
+									Name:  &Name{Value: "projectId", Start: 53},
+									Colon: 62,
+									Type: &TypeRef{
+										Named: &Name{Value: "ID", Start: 64},
+									},
+								},
+								{
+									Name:  &Name{Value: "text", Start: 68},
+									Colon: 72,
+									Type: &TypeRef{
+										NonNull: &NonNullType{
+											Named: &Name{Value: "String", Start: 74},
+											Pos:   80,
+										},
+									},
+								},
+							},
+						},
+					}}},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
