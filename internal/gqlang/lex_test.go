@@ -319,6 +319,14 @@ func TestToPosition(t *testing.T) {
 		{"\ufefffoo", 2, Position{1, 1}},
 		{"\ufefffoo", 3, Position{1, 1}},
 		{"\ufefffoo", 4, Position{1, 2}},
+		{"\t", 0, Position{1, 1}},
+		{"\t", 1, Position{1, 9}},
+		{"f\too", 0, Position{1, 1}},
+		{"f\too", 2, Position{1, 9}},
+		{"1234567\t", 0, Position{1, 1}},
+		{"1234567\t", 8, Position{1, 9}},
+		{"12345678\t", 0, Position{1, 1}},
+		{"12345678\t", 9, Position{1, 17}},
 	}
 	for _, test := range tests {
 		if got := test.pos.ToPosition(test.input); got != test.want {

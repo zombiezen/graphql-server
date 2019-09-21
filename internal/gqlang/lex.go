@@ -318,6 +318,12 @@ func (pos Pos) ToPosition(input string) Position {
 		case '\n':
 			line++
 			col = 1
+		case '\t':
+			const tabWidth = 8
+			col++
+			for (col-1)%tabWidth != 0 {
+				col++
+			}
 		default:
 			col++
 		}
