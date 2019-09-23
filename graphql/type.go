@@ -97,7 +97,7 @@ func (typ *gqlType) String() string {
 
 // isNullable reports whether the type permits null.
 func (typ *gqlType) isNullable() bool {
-	return typ.nonNull
+	return !typ.nonNull
 }
 
 func (typ *gqlType) toNullable() *gqlType {
