@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -141,18 +142,33 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 	if len(errs) > 0 {
 		resp := Response{}
 		for _, err := range errs {
-			re := &ResponseError{
-				Message: err.Error(),
-			}
-			if p, ok := gqlang.ErrorPosition(err); ok {
-				re.Locations = []Location{{Line: p.Line, Column: p.Column}}
-			}
-			resp.Errors = append(resp.Errors, re)
+			resp.Errors = append(resp.Errors, toResponseError(err))
 		}
 		return resp
 	}
-	// TODO(soon): Validate doc; use proper named operation.
-	op := doc.Definitions[0].Operation
+	errs = srv.schema.validateRequest(req.Query, doc)
+	if len(errs) > 0 {
+		resp := Response{}
+		for _, err := range errs {
+			resp.Errors = append(resp.Errors, toResponseError(err))
+		}
+		return resp
+	}
+	op := findOperation(doc, req.OperationName)
+	if op == nil {
+		if req.OperationName == "" {
+			return Response{
+				Errors: []*ResponseError{
+					{Message: "multiple operations; must specify operation name"},
+				},
+			}
+		}
+		return Response{
+			Errors: []*ResponseError{
+				{Message: fmt.Sprintf("no such operation %q", req.OperationName)},
+			},
+		}
+	}
 	var data Value
 	var err error
 	switch op.Type {
@@ -194,6 +210,20 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 	return Response{Data: data}
 }
 
+// findOperation finds the operation with the name or nil if not found.
+// It assumes the document has been validated.
+func findOperation(doc *gqlang.Document, operationName string) *gqlang.Operation {
+	for _, defn := range doc.Definitions {
+		if defn.Operation == nil {
+			continue
+		}
+		if operationName == "" || operationName == defn.Operation.Name.Value {
+			return defn.Operation
+		}
+	}
+	return nil
+}
+
 // Request holds the inputs for a GraphQL operation.
 type Request struct {
 	Query         string           `json:"query"`
@@ -220,10 +250,49 @@ func (e *ResponseError) Error() string {
 	return e.Message
 }
 
-// Location identifies a position in a GraphQL document.
+func toResponseError(e error) *ResponseError {
+	re, ok := e.(*ResponseError)
+	if ok {
+		// e is a *ResponseError.
+		return re
+	}
+	if xerrors.As(e, &re) {
+		// A *ResponseError is in the chain, but not the top-level.
+		// Wrap the new message.
+		return &ResponseError{
+			Message:   e.Error(),
+			Locations: re.Locations,
+			Path:      re.Path,
+		}
+	}
+
+	// Build a new response error.
+	re = &ResponseError{
+		Message: e.Error(),
+	}
+	if pos, ok := gqlang.ErrorPosition(e); ok {
+		re.Locations = []Location{astPositionToLocation(pos)}
+	}
+	return re
+}
+
+// Location identifies a position in a GraphQL document. Line and column
+// are 1-based.
 type Location struct {
 	Line   int `json:"line"`
 	Column int `json:"column"`
+}
+
+func astPositionToLocation(pos gqlang.Position) Location {
+	return Location{
+		Line:   pos.Line,
+		Column: pos.Column,
+	}
+}
+
+// String returns the location in the form "line:col".
+func (loc Location) String() string {
+	return fmt.Sprintf("%d:%d", loc.Line, loc.Column)
 }
 
 // PathSegment identifies a field or array index in an output object.

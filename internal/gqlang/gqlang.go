@@ -33,6 +33,18 @@ type Definition struct {
 	Type      *TypeDefinition
 }
 
+// Start returns the position of the definition's first token.
+func (defn *Definition) Start() Pos {
+	switch {
+	case defn.Operation != nil:
+		return defn.Operation.Start
+	case defn.Type != nil:
+		return defn.Type.Start()
+	default:
+		panic("unknown definition")
+	}
+}
+
 // Operation is a query, a mutation, or a subscription.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Operations
 type Operation struct {
@@ -197,7 +209,7 @@ type Name struct {
 	Start Pos
 }
 
-// String returns the name.
+// String returns the name or the empty string if the name is nil.
 func (n *Name) String() string {
 	if n == nil {
 		return ""
@@ -244,6 +256,20 @@ type TypeDefinition struct {
 	Scalar      *ScalarTypeDefinition
 	Object      *ObjectTypeDefinition
 	InputObject *InputObjectTypeDefinition
+}
+
+// Start returns the position of the type definition's first token.
+func (defn *TypeDefinition) Start() Pos {
+	switch {
+	case defn.Scalar != nil:
+		return defn.Scalar.Keyword
+	case defn.Object != nil:
+		return defn.Object.Keyword
+	case defn.InputObject != nil:
+		return defn.InputObject.Keyword
+	default:
+		panic("unknown type definition")
+	}
 }
 
 // Description returns the type definition's description or nil if it does not
