@@ -69,10 +69,10 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 				// TODO(soon): Wrap with path segment.
 				for j := range errs {
 					errs[j] = xerrors.Errorf("list value [%d]: %w", i, errs[j])
-			}
+				}
 				// TODO(soon): Only return if element types are non-nullable.
 				return Value{typ: typ}, errs
-		}
+			}
 		}
 		return Value{typ: typ, val: gqlValues}, nil
 	case typ.obj != nil:
@@ -126,7 +126,7 @@ func readField(ctx context.Context, goValue reflect.Value, name string, args map
 	if len(errs) > 0 {
 		for i := range errs {
 			errs[i] = xerrors.Errorf("field %s: %w", name, errs[i])
-	}
+		}
 		return Value{typ: typ}, errs
 	}
 	return ret, nil
@@ -147,7 +147,7 @@ func scalarFromGo(goValue reflect.Value, typ *gqlType) (Value, error) {
 		}
 		return Value{typ: typ, val: strconv.FormatBool(goValue.Bool())}, nil
 	case intType:
-		if goValue.Kind() != reflect.Int32 || goValue.Kind() != reflect.Int {
+		if goValue.Kind() != reflect.Int32 && goValue.Kind() != reflect.Int {
 			return Value{}, xerrors.Errorf("cannot convert %v to %v", goValue.Type(), typ)
 		}
 		i := goValue.Int()
@@ -240,6 +240,23 @@ func (v Value) GoValue() interface{} {
 	default:
 		panic("unknown type in Value.val")
 	}
+}
+
+// IsNull reports whether v is null.
+func (v Value) IsNull() bool {
+	return v.val == nil
+}
+
+// Boolean reports if v is a scalar with the value "true".
+func (v Value) Boolean() bool {
+	return v.val == "true"
+}
+
+// Scalar returns the string value of v if it is a scalar or the empty
+// string otherwise.
+func (v Value) Scalar() string {
+	s, _ := v.val.(string)
+	return s
 }
 
 // MarshalJSON converts the value to JSON.
