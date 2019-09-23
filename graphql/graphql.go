@@ -85,10 +85,9 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 		}
 	}
 	var data Value
-	var err error
 	switch op.Type {
 	case gqlang.Query:
-		data, err = valueFromGo(ctx, srv.query, srv.schema.query, newSelectionSet(op.SelectionSet))
+		data, errs = valueFromGo(ctx, srv.query, srv.schema.query, newSelectionSet(op.SelectionSet))
 	case gqlang.Mutation:
 		if !srv.mutation.IsValid() {
 			pos := op.Start.ToPosition(req.Query)
@@ -102,7 +101,7 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 				}},
 			}
 		}
-		data, err = valueFromGo(ctx, srv.mutation, srv.schema.mutation, newSelectionSet(op.SelectionSet))
+		data, errs = valueFromGo(ctx, srv.mutation, srv.schema.mutation, newSelectionSet(op.SelectionSet))
 	default:
 		pos := op.Start.ToPosition(req.Query)
 		return Response{
@@ -115,14 +114,13 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 			}},
 		}
 	}
-	if err != nil {
-		return Response{
-			Errors: []*ResponseError{{
-				Message: xerrors.Errorf("evaluate: %w", err).Error(),
-			}},
-		}
+	resp := Response{
+		Data: data,
 	}
-	return Response{Data: data}
+	for _, err := range errs {
+		resp.Errors = append(resp.Errors, toResponseError(err))
+	}
+	return resp
 }
 
 // findOperation finds the operation with the name or nil if not found.

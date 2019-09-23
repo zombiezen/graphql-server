@@ -40,30 +40,39 @@ type field struct {
 
 // valueFromGo converts a Go value into a GraphQL value. The selection set is
 // ignored for scalars.
-func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *SelectionSet) (Value, error) {
+func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *SelectionSet) (Value, []error) {
 	// Since this function is recursive, caller must prepend error operation.
 
 	goValue = unwrapPointer(goValue)
 	if !goValue.IsValid() {
 		if !typ.isNullable() {
-			return Value{}, xerrors.Errorf("cannot convert nil to %v", typ)
+			return Value{typ: typ}, []error{xerrors.Errorf("cannot convert nil to %v", typ)}
 		}
 		return Value{typ: typ, val: nil}, nil
 	}
 	switch {
 	case typ.scalar != "":
-		return scalarFromGo(goValue, typ)
+		v, err := scalarFromGo(goValue, typ)
+		if err != nil {
+			return Value{typ: typ}, []error{err}
+		}
+		return v, nil
 	case typ.list != nil:
 		if kind := goValue.Kind(); kind != reflect.Slice && kind != reflect.Array {
-			return Value{}, xerrors.Errorf("cannot convert %v to %v", goValue.Type(), typ)
+			return Value{typ: typ}, []error{xerrors.Errorf("cannot convert %v to %v", goValue.Type(), typ)}
 		}
 		gqlValues := make([]Value, goValue.Len())
 		for i := range gqlValues {
-			var err error
-			gqlValues[i], err = valueFromGo(ctx, goValue.Index(i), typ.list, sel)
-			if err != nil {
-				return Value{}, xerrors.Errorf("list value [%d]: %w", i, err)
+			var errs []error
+			gqlValues[i], errs = valueFromGo(ctx, goValue.Index(i), typ.list, sel)
+			if len(errs) > 0 {
+				// TODO(soon): Wrap with path segment.
+				for j := range errs {
+					errs[j] = xerrors.Errorf("list value [%d]: %w", i, errs[j])
 			}
+				// TODO(soon): Only return if element types are non-nullable.
+				return Value{typ: typ}, errs
+		}
 		}
 		return Value{typ: typ, val: gqlValues}, nil
 	case typ.obj != nil:
@@ -77,11 +86,13 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 		}
 		return Value{typ: typ, val: gqlFields}, nil
 	default:
-		return Value{}, xerrors.Errorf("unhandled type: %v", typ)
+		return Value{typ: typ}, []error{xerrors.Errorf("unhandled type: %v", typ)}
 	}
 }
 
-func readField(ctx context.Context, goValue reflect.Value, name string, args map[string]Value, typ *gqlType, sel *SelectionSet) (Value, error) {
+func readField(ctx context.Context, goValue reflect.Value, name string, args map[string]Value, typ *gqlType, sel *SelectionSet) (Value, []error) {
+	// TODO(soon): Wrap any error in this function with a field path segment.
+
 	// TODO(soon): Search over all fields and/or methods to find case-insensitive match.
 	goName := graphQLToGoFieldName(name)
 
@@ -89,14 +100,14 @@ func readField(ctx context.Context, goValue reflect.Value, name string, args map
 		if fieldValue := goValue.FieldByName(goName); fieldValue.IsValid() {
 			v, err := valueFromGo(ctx, fieldValue, typ, sel)
 			if err != nil {
-				return Value{}, xerrors.Errorf("field %s: %w", name, err)
+				return Value{typ: typ}, []error{xerrors.Errorf("field %s: %w", name, err)}
 			}
 			return v, nil
 		}
 	}
 	method := goValue.MethodByName(goName)
 	if !method.IsValid() {
-		return Value{}, xerrors.Errorf("field %s: no such method or field on %v", name, goValue.Type())
+		return Value{typ: typ}, []error{xerrors.Errorf("field %s: no such method or field on %v", name, goValue.Type())}
 	}
 	// TODO(soon): Dynamically adapt to parameters available.
 	callArgs := []reflect.Value{
@@ -109,11 +120,14 @@ func readField(ctx context.Context, goValue reflect.Value, name string, args map
 	callReturns := method.Call(callArgs)
 	if !callReturns[1].IsNil() {
 		err := callReturns[1].Interface().(error)
-		return Value{}, xerrors.Errorf("field %s: %w", name, err)
+		return Value{typ: typ}, []error{xerrors.Errorf("field %s: %w", name, err)}
 	}
-	ret, err := valueFromGo(ctx, callReturns[0], typ, sel)
-	if err != nil {
-		return Value{}, xerrors.Errorf("field %s: %w", name, err)
+	ret, errs := valueFromGo(ctx, callReturns[0], typ, sel)
+	if len(errs) > 0 {
+		for i := range errs {
+			errs[i] = xerrors.Errorf("field %s: %w", name, errs[i])
+	}
+		return Value{typ: typ}, errs
 	}
 	return ret, nil
 }
