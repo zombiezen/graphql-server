@@ -46,6 +46,24 @@ func ParseSchema(input string) (*Schema, error) {
 		}
 		return nil, xerrors.New(msgBuilder.String())
 	}
+	for _, defn := range doc.Definitions {
+		if defn.Operation != nil {
+			return nil, xerrors.Errorf("parse schema: %v: operations not allowed in schemas", defn.Operation.Start.ToPosition(input))
+		}
+	}
+	typeMap := buildTypeMap(doc)
+	schema := &Schema{
+		query:    typeMap["Query"],
+		mutation: typeMap["Mutation"],
+		types:    typeMap,
+	}
+	if schema.query == nil {
+		return nil, xerrors.New("parse schema: could not find Query type")
+	}
+	return schema, nil
+}
+
+func buildTypeMap(doc *gqlang.Document) map[string]*gqlType {
 	typeMap := make(map[string]*gqlType)
 	builtins := []*gqlType{
 		booleanType,
@@ -83,15 +101,7 @@ func ParseSchema(input string) (*Schema, error) {
 			info.fields[fieldDefn.Name.Value] = resolveTypeRef(typeMap, fieldDefn.Type)
 		}
 	}
-	schema := &Schema{
-		query:    typeMap["Query"],
-		mutation: typeMap["Mutation"],
-		types:    typeMap,
-	}
-	if schema.query == nil {
-		return nil, xerrors.New("parse schema: no query type specified")
-	}
-	return schema, nil
+	return typeMap
 }
 
 func resolveTypeRef(typeMap map[string]*gqlType, ref *gqlang.TypeRef) *gqlType {
