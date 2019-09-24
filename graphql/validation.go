@@ -19,6 +19,7 @@ package graphql
 import (
 	"fmt"
 
+	"golang.org/x/xerrors"
 	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
 
@@ -72,8 +73,67 @@ func (schema *Schema) validateRequest(input string, doc *gqlang.Document) []erro
 	if len(errs) > 0 {
 		return errs
 	}
-	// TODO(soon): Validate the rest.
-	return nil
+	for _, defn := range doc.Definitions {
+		op := defn.Operation
+		if op == nil {
+			continue
+		}
+		opType := schema.operationType(op.Type)
+		if opType == nil {
+			errs = append(errs, &ResponseError{
+				Message: fmt.Sprintf("%v unsupported", op.Type),
+				Locations: []Location{
+					astPositionToLocation(defn.Operation.Start.ToPosition(input)),
+				},
+			})
+			continue
+		}
+		errs = append(errs, validateSelectionSet(input, opType, op.SelectionSet)...)
+	}
+	return errs
+}
+
+func validateSelectionSet(input string, typ *gqlType, set *gqlang.SelectionSet) []error {
+	var errs []error
+	for _, selection := range set.Sel {
+		fieldType := typ.obj.fields[selection.Field.Name.Value]
+		if fieldType == nil {
+			// Field not found.
+			// https://graphql.github.io/graphql-spec/June2018/#sec-Field-Selections-on-Objects-Interfaces-and-Unions-Types
+			errs = append(errs, &ResponseError{
+				Message: fmt.Sprintf("field %q not found on type %v", selection.Field.Name.Value, fieldType),
+				Locations: []Location{
+					astPositionToLocation(selection.Field.Name.Start.ToPosition(input)),
+				},
+			})
+			continue
+		}
+		// https://graphql.github.io/graphql-spec/June2018/#sec-Leaf-Field-Selections
+		if subsetType := fieldType.selectionSetType(); subsetType != nil {
+			if selection.Field.SelectionSet == nil {
+				errs = append(errs, &ResponseError{
+					Message: fmt.Sprintf("object field %q missing selection set", selection.Field.Name.Value),
+					Locations: []Location{
+						astPositionToLocation(selection.Field.End().ToPosition(input)),
+					},
+				})
+				continue
+			}
+			subErrs := validateSelectionSet(input, subsetType, selection.Field.SelectionSet)
+			for _, err := range subErrs {
+				// TODO(soon): Add path element to error.
+				errs = append(errs, xerrors.Errorf("field %s: %w", selection.Field.Name.Value, err))
+			}
+		} else if selection.Field.SelectionSet != nil {
+			errs = append(errs, &ResponseError{
+				Message: fmt.Sprintf("scalar field %q must not have selection set", selection.Field.Name.Value),
+				Locations: []Location{
+					astPositionToLocation(selection.Field.SelectionSet.LBrace.ToPosition(input)),
+				},
+			})
+		}
+	}
+	return errs
 }
 
 func posListToLocationList(input string, posList []gqlang.Pos) []Location {

@@ -110,6 +110,17 @@ type Field struct {
 	SelectionSet *SelectionSet
 }
 
+// End returns the byte offset after the end of the field.
+func (f *Field) End() Pos {
+	if f.SelectionSet != nil {
+		return f.SelectionSet.RBrace + 1
+	}
+	if f.Arguments != nil {
+		return f.Arguments.RParen + 1
+	}
+	return f.Name.End()
+}
+
 // Arguments is a set of named arguments on a field.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Arguments
 type Arguments struct {
@@ -207,6 +218,11 @@ type VariableDefinition struct {
 type Name struct {
 	Value string
 	Start Pos
+}
+
+// End returns the position of the byte after the last character of the name.
+func (n *Name) End() Pos {
+	return n.Start + Pos(len(n.Value))
 }
 
 // String returns the name or the empty string if the name is nil.

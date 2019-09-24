@@ -25,23 +25,30 @@ import (
 )
 
 func TestValidateRequest(t *testing.T) {
+	// Schema from https://graphql.github.io/graphql-spec/June2018/#example-26a9d
+	// TODO(soon): Fill out all missing parts.
 	const schemaSource = `
 		type Query {
 			dog: Dog
 		}
 
-		type Mutation {
-			mutateDog: ID
-		}
+		scalar DogCommand
 
 		type Dog {
-			name: String
-			color: String
-			owner: Person
+			name: String!
+			nickname: String
+			barkVolume: Int
+			doesKnowCommand(dogCommand: DogCommand): Boolean!
+			isHousetrained(atOtherHomes: Boolean): Boolean!
+			owner: Human
 		}
 
-		type Person {
-			name: String
+		type Human {
+			name: String!
+		}
+
+		type Mutation {
+			mutateDog: ID
 		}`
 	schema, err := ParseSchema(schemaSource)
 	if err != nil {
@@ -59,7 +66,7 @@ func TestValidateRequest(t *testing.T) {
 				query getDogName {
 					dog {
 						name
-						color
+						nickname
 					}
 				}`,
 			wantErrorLocations: nil,
@@ -173,6 +180,55 @@ func TestValidateRequest(t *testing.T) {
 				}`,
 			wantErrorLocations: map[Location]struct{}{
 				{2, 33}: {},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-48706
+			name: "FieldSelection/NotDefined",
+			request: `
+				{
+					dog {
+						meowVolume
+					}
+				}`,
+			wantErrorLocations: map[Location]struct{}{
+				{4, 49}: {},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-e23c5
+			name: "FieldSelection/Leaf/ScalarValid",
+			request: `
+				{
+					dog {
+						barkVolume
+					}
+				}`,
+			wantErrorLocations: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-13b69
+			name: "FieldSelection/Leaf/ScalarWithSelectionSet",
+			request: `
+				{
+					dog {
+						barkVolume {
+							sinceWhen
+						}
+					}
+				}`,
+			wantErrorLocations: map[Location]struct{}{
+				{4, 60}: {},
+			},
+		},
+		{
+			name: "FieldSelection/Leaf/Object",
+			request: `
+				{
+					dog
+				}`,
+			wantErrorLocations: map[Location]struct{}{
+				{3, 44}: {},
 			},
 		},
 	}

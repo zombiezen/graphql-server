@@ -118,3 +118,16 @@ func resolveTypeRef(typeMap map[string]*gqlType, ref *gqlang.TypeRef) *gqlType {
 		panic("unrecognized type reference form")
 	}
 }
+
+func (schema *Schema) operationType(opType gqlang.OperationType) *gqlType {
+	switch opType {
+	case gqlang.Query:
+		return schema.query
+	case gqlang.Mutation:
+		return schema.mutation
+	case gqlang.Subscription:
+		return nil
+	default:
+		panic("unknown operation type")
+	}
+}

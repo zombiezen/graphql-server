@@ -128,9 +128,12 @@ func (typ *gqlType) isObject() bool {
 	return typ.obj != nil
 }
 
-func (typ *gqlType) needsSelectionSet() bool {
+func (typ *gqlType) selectionSetType() *gqlType {
 	for typ.isList() {
 		typ = typ.list
 	}
-	return typ.isObject()
+	if !typ.isObject() {
+		return nil
+	}
+	return typ
 }

@@ -116,7 +116,7 @@ func readField(ctx context.Context, goValue reflect.Value, name string, args map
 	if !method.IsValid() {
 		return Value{typ: typ}, []error{xerrors.Errorf("field %s: no such method or field on %v", name, goValue.Type())}
 	}
-	methodResult, err := callFieldMethod(ctx, method, args, sel, typ.needsSelectionSet())
+	methodResult, err := callFieldMethod(ctx, method, args, sel, typ.selectionSetType() != nil)
 	if err != nil {
 		return Value{typ: typ}, []error{xerrors.Errorf("field %s: %w", name, err)}
 	}
