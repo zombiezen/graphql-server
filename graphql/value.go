@@ -89,7 +89,7 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 			if err != nil {
 				return Value{}, err
 			}
-			gqlFields = append(gqlFields, Field{Key: f.name, Value: fval})
+			gqlFields = append(gqlFields, Field{Key: f.key, Value: fval})
 		}
 		return Value{typ: typ, val: gqlFields}, nil
 	default:

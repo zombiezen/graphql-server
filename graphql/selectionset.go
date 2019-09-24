@@ -34,10 +34,15 @@ func newSelectionSet(ast *gqlang.SelectionSet) *SelectionSet {
 	for _, sel := range ast.Sel {
 		if sel.Field != nil {
 			// TODO(soon): args
-			set.fields = append(set.fields, &selectionField{
+			field := &selectionField{
 				name: sel.Field.Name.Value,
+				key:  sel.Field.Name.Value,
 				sub:  newSelectionSet(sel.Field.SelectionSet),
-			})
+			}
+			if sel.Field.Alias != nil {
+				field.key = sel.Field.Alias.Value
+			}
+			set.fields = append(set.fields, field)
 		}
 	}
 	return set
@@ -72,7 +77,11 @@ func (sel *SelectionSet) Arguments(name string) []map[string]Value {
 }
 
 type selectionField struct {
+	// key is the response object key to be used. Usually the same as name.
+	key string
+	// name is the object field name.
 	name string
+
 	args map[string]Value
 	sub  *SelectionSet
 }

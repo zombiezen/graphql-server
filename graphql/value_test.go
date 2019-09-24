@@ -35,7 +35,6 @@ func TestValueFromGo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = schema
 	tests := []struct {
 		name         string
 		goValue      reflect.Value
@@ -137,8 +136,8 @@ func TestValueFromGo(t *testing.T) {
 			typ: schema.query,
 			selectionSet: &SelectionSet{
 				fields: []*selectionField{
-					{name: "foo"},
-					{name: "bar"},
+					{name: "foo", key: "foo"},
+					{name: "bar", key: "bar"},
 				},
 			},
 			want: valueExpectations{object: []fieldExpectations{
@@ -155,7 +154,7 @@ func TestValueFromGo(t *testing.T) {
 			typ: schema.query,
 			selectionSet: &SelectionSet{
 				fields: []*selectionField{
-					{name: "bar"},
+					{name: "bar", key: "bar"},
 				},
 			},
 			want: valueExpectations{object: []fieldExpectations{
@@ -168,7 +167,7 @@ func TestValueFromGo(t *testing.T) {
 			typ:     schema.query,
 			selectionSet: &SelectionSet{
 				fields: []*selectionField{
-					{name: "foo"},
+					{name: "foo", key: "foo"},
 				},
 			},
 			want: valueExpectations{object: []fieldExpectations{
@@ -183,7 +182,7 @@ func TestValueFromGo(t *testing.T) {
 			typ: schema.query,
 			selectionSet: &SelectionSet{
 				fields: []*selectionField{
-					{name: "foo"},
+					{name: "foo", key: "foo"},
 				},
 			},
 			want: valueExpectations{object: []fieldExpectations{
@@ -198,11 +197,29 @@ func TestValueFromGo(t *testing.T) {
 			typ: schema.query,
 			selectionSet: &SelectionSet{
 				fields: []*selectionField{
-					{name: "foo"},
+					{name: "foo", key: "foo"},
 				},
 			},
 			want: valueExpectations{object: []fieldExpectations{
 				{key: "foo", value: valueExpectations{scalar: "xyzzy"}},
+			}},
+		},
+		{
+			name: "Object/Alias",
+			goValue: reflect.ValueOf(&valueQueryStructFields{
+				Foo: "xyzzy",
+				Bar: "BORK",
+			}),
+			typ: schema.query,
+			selectionSet: &SelectionSet{
+				fields: []*selectionField{
+					{name: "foo", key: "magic"},
+					{name: "foo", key: "bar"},
+				},
+			},
+			want: valueExpectations{object: []fieldExpectations{
+				{key: "magic", value: valueExpectations{scalar: "xyzzy"}},
+				{key: "bar", value: valueExpectations{scalar: "xyzzy"}},
 			}},
 		},
 	}
