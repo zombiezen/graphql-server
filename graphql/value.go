@@ -30,12 +30,16 @@ import (
 // A Value is a typed GraphQL datum.
 type Value struct {
 	typ *gqlType
-	val interface{} // one of nil, string, []Value, []field, or map[string]Value.
+	val interface{} // one of nil, string, []Value, []Field, or map[string]Value.
 }
 
-type field struct {
-	name  string
-	value Value
+// Field is a field in an object or input object.
+type Field struct {
+	// Key is the response object key. This may not be the same as the field name
+	// when aliases are used.
+	Key string
+	// Value is the field's value.
+	Value Value
 }
 
 // valueFromGo converts a Go value into a GraphQL value. The selection set is
@@ -76,13 +80,16 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 		}
 		return Value{typ: typ, val: gqlValues}, nil
 	case typ.obj != nil:
-		gqlFields := make([]field, 0, len(sel.fields))
+		if sel == nil {
+			return Value{typ: typ, val: []Field(nil)}, nil
+		}
+		gqlFields := make([]Field, 0, len(sel.fields))
 		for _, f := range sel.fields {
 			fval, err := readField(ctx, goValue, f.name, f.args, typ.obj.fields[f.name], f.sub)
 			if err != nil {
 				return Value{}, err
 			}
-			gqlFields = append(gqlFields, field{name: f.name, value: fval})
+			gqlFields = append(gqlFields, Field{Key: f.name, Value: fval})
 		}
 		return Value{typ: typ, val: gqlFields}, nil
 	default:
@@ -225,10 +232,10 @@ func (v Value) GoValue() interface{} {
 			goVal[i] = vv.GoValue()
 		}
 		return goVal
-	case []field:
+	case []Field:
 		goVal := make(map[string]interface{}, len(val))
 		for _, f := range val {
-			goVal[f.name] = f.value.GoValue()
+			goVal[f.Key] = f.Value.GoValue()
 		}
 		return goVal
 	case map[string]Value:
@@ -259,6 +266,28 @@ func (v Value) Scalar() string {
 	return s
 }
 
+// Len returns the number of elements or fields in v. Len panics if v is not a
+// list, object, or input object.
+func (v Value) Len() int {
+	switch val := v.val.(type) {
+	case []Value:
+		return len(val)
+	case []Field:
+		return len(val)
+	case map[string]Value:
+		return len(val)
+	default:
+		panic("invalid value for Len()")
+	}
+}
+
+// Field returns v's i'th field. Field panics if v is not an object or i is not
+// in the range [0, Len()).
+func (v Value) Field(i int) Field {
+	fields := v.val.([]Field)
+	return fields[i]
+}
+
 // MarshalJSON converts the value to JSON.
 func (v Value) MarshalJSON() ([]byte, error) {
 	switch val := v.val.(type) {
@@ -272,20 +301,20 @@ func (v Value) MarshalJSON() ([]byte, error) {
 		return json.Marshal(val)
 	case []Value, map[string]Value:
 		return json.Marshal(val)
-	case []field:
+	case []Field:
 		var buf []byte
 		buf = append(buf, '{')
 		for i, f := range val {
 			if i > 0 {
 				buf = append(buf, ',')
 			}
-			key, err := json.Marshal(f.name)
+			key, err := json.Marshal(f.Key)
 			if err != nil {
 				return nil, err
 			}
 			buf = append(buf, key...)
 			buf = append(buf, ':')
-			fval, err := json.Marshal(f.value)
+			fval, err := json.Marshal(f.Value)
 			if err != nil {
 				return nil, err
 			}

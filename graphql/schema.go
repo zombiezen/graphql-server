@@ -27,6 +27,7 @@ import (
 type Schema struct {
 	query    *gqlType
 	mutation *gqlType
+	types    map[string]*gqlType
 }
 
 // ParseSchema parses a GraphQL document containing type definitions.
@@ -85,6 +86,7 @@ func ParseSchema(input string) (*Schema, error) {
 	schema := &Schema{
 		query:    typeMap["Query"],
 		mutation: typeMap["Mutation"],
+		types:    typeMap,
 	}
 	if schema.query == nil {
 		return nil, xerrors.New("parse schema: no query type specified")
