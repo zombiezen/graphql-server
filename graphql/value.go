@@ -55,13 +55,13 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 		return Value{typ: typ, val: nil}, nil
 	}
 	switch {
-	case typ.scalar != "":
+	case typ.isScalar():
 		v, err := scalarFromGo(goValue, typ)
 		if err != nil {
 			return Value{typ: typ}, []error{err}
 		}
 		return v, nil
-	case typ.list != nil:
+	case typ.isList():
 		if kind := goValue.Kind(); kind != reflect.Slice && kind != reflect.Array {
 			return Value{typ: typ}, []error{xerrors.Errorf("cannot convert %v to %v", goValue.Type(), typ)}
 		}
@@ -79,7 +79,7 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 			}
 		}
 		return Value{typ: typ, val: gqlValues}, nil
-	case typ.obj != nil:
+	case typ.isObject():
 		if sel == nil {
 			return Value{typ: typ, val: []Field(nil)}, nil
 		}
@@ -112,31 +112,82 @@ func readField(ctx context.Context, goValue reflect.Value, name string, args map
 			return v, nil
 		}
 	}
-	method := goValue.MethodByName(goName)
+	method := findFieldMethod(goValue, name)
 	if !method.IsValid() {
 		return Value{typ: typ}, []error{xerrors.Errorf("field %s: no such method or field on %v", name, goValue.Type())}
 	}
-	// TODO(soon): Dynamically adapt to parameters available.
-	callArgs := []reflect.Value{
-		reflect.ValueOf(ctx),
-		reflect.ValueOf(args),
-	}
-	if sel != nil {
-		callArgs = append(callArgs, reflect.ValueOf(sel))
-	}
-	callReturns := method.Call(callArgs)
-	if !callReturns[1].IsNil() {
-		err := callReturns[1].Interface().(error)
+	methodResult, err := callFieldMethod(ctx, method, args, sel, typ.needsSelectionSet())
+	if err != nil {
 		return Value{typ: typ}, []error{xerrors.Errorf("field %s: %w", name, err)}
 	}
-	ret, errs := valueFromGo(ctx, callReturns[0], typ, sel)
+	ret, errs := valueFromGo(ctx, methodResult, typ, sel)
 	if len(errs) > 0 {
 		for i := range errs {
 			errs[i] = xerrors.Errorf("field %s: %w", name, errs[i])
 		}
-		return Value{typ: typ}, errs
 	}
-	return ret, nil
+	return ret, errs
+}
+
+func findFieldMethod(v reflect.Value, name string) reflect.Value {
+	// TODO(soon): Search over all fields and/or methods to find case-insensitive match.
+
+	v = unwrapPointer(v)
+	if v.Kind() != reflect.Interface && v.CanAddr() {
+		v = v.Addr()
+	}
+	return v.MethodByName(graphQLToGoFieldName(name))
+}
+
+var (
+	contextGoType      = reflect.TypeOf(new(context.Context)).Elem()
+	argsGoType         = reflect.TypeOf(new(map[string]Value)).Elem()
+	selectionSetGoType = reflect.TypeOf(new(*SelectionSet)).Elem()
+	errorGoType        = reflect.TypeOf(new(error)).Elem()
+)
+
+func callFieldMethod(ctx context.Context, method reflect.Value, args map[string]Value, sel *SelectionSet, passSel bool) (reflect.Value, error) {
+	mtype := method.Type()
+	numIn := mtype.NumIn()
+	var callArgs []reflect.Value
+	if len(callArgs) < numIn && mtype.In(len(callArgs)) == contextGoType {
+		callArgs = append(callArgs, reflect.ValueOf(ctx))
+	}
+	if len(callArgs) < numIn && mtype.In(len(callArgs)) == argsGoType {
+		callArgs = append(callArgs, reflect.ValueOf(args))
+	}
+	if passSel {
+		if len(callArgs) < numIn && mtype.In(len(callArgs)) == selectionSetGoType {
+			callArgs = append(callArgs, reflect.ValueOf(sel))
+		}
+	}
+	if len(callArgs) != numIn {
+		return reflect.Value{}, xerrors.New("call field method: wrong parameter signature")
+	}
+
+	switch mtype.NumOut() {
+	case 1:
+		if mtype.Out(0) == errorGoType {
+			return reflect.Value{}, xerrors.New("call field method: return type must not be error")
+		}
+		out := method.Call(callArgs)
+		return out[0], nil
+	case 2:
+		if mtype.Out(0) == errorGoType {
+			return reflect.Value{}, xerrors.New("call field method: first return type must not be error")
+		}
+		if got := mtype.Out(1); got != errorGoType {
+			return reflect.Value{}, xerrors.Errorf("call field method: second return type must be error (found %v)", got)
+		}
+		out := method.Call(callArgs)
+		if !out[1].IsNil() {
+			err := out[1].Interface().(error)
+			return reflect.Value{}, xerrors.Errorf("call field method: %w", err)
+		}
+		return out[0], nil
+	default:
+		return reflect.Value{}, xerrors.New("call field method: wrong return signature")
+	}
 }
 
 func scalarFromGo(goValue reflect.Value, typ *gqlType) (Value, error) {
@@ -277,7 +328,7 @@ func (v Value) Len() int {
 	case map[string]Value:
 		return len(val)
 	default:
-		panic("invalid value for Len()")
+		panic(fmt.Sprintf("invalid value for Len(): %T", v.val))
 	}
 }
 

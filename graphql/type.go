@@ -85,13 +85,15 @@ func (typ *gqlType) String() string {
 	}
 	switch {
 	case typ == nil:
-		return ""
-	case typ.scalar != "":
+		return "<nil>"
+	case typ.isScalar():
 		return typ.scalar + suffix
-	case typ.list != nil:
+	case typ.isList():
 		return "[" + typ.list.String() + "]" + suffix
+	case typ.isObject():
+		return typ.obj.name + suffix
 	default:
-		return ""
+		return "<invalid type>"
 	}
 }
 
@@ -112,4 +114,23 @@ func (typ *gqlType) toNonNullable() *gqlType {
 		return typ
 	}
 	return typ.nullVariant
+}
+
+func (typ *gqlType) isScalar() bool {
+	return typ.scalar != ""
+}
+
+func (typ *gqlType) isList() bool {
+	return typ.list != nil
+}
+
+func (typ *gqlType) isObject() bool {
+	return typ.obj != nil
+}
+
+func (typ *gqlType) needsSelectionSet() bool {
+	for typ.isList() {
+		typ = typ.list
+	}
+	return typ.isObject()
 }

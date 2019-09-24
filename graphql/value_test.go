@@ -39,6 +39,7 @@ func TestValueFromGo(t *testing.T) {
 	tests := []struct {
 		name         string
 		goValue      reflect.Value
+		goValueFunc  func(e errorfer) reflect.Value
 		typ          *gqlType
 		selectionSet *SelectionSet
 		want         valueExpectations
@@ -130,6 +131,25 @@ func TestValueFromGo(t *testing.T) {
 		{
 			name: "Object/StructFields",
 			goValue: reflect.ValueOf(&valueQueryStructFields{
+				Foo: "xyzzy",
+				Bar: "baz",
+			}),
+			typ: schema.query,
+			selectionSet: &SelectionSet{
+				fields: []*selectionField{
+					{name: "foo"},
+					{name: "bar"},
+				},
+			},
+			want: valueExpectations{object: []fieldExpectations{
+				{key: "foo", value: valueExpectations{scalar: "xyzzy"}},
+				{key: "bar", value: valueExpectations{scalar: "baz"}},
+			}},
+		},
+		{
+			name: "Object/PartialStructFields",
+			goValue: reflect.ValueOf(&valueQueryStructFields{
+				Foo: "xyzzy",
 				Bar: "baz",
 			}),
 			typ: schema.query,
@@ -142,12 +162,59 @@ func TestValueFromGo(t *testing.T) {
 				{key: "bar", value: valueExpectations{scalar: "baz"}},
 			}},
 		},
+		{
+			name:    "Object/Method/NoArgs",
+			goValue: reflect.ValueOf(new(valueQueryMethodNoArgs)),
+			typ:     schema.query,
+			selectionSet: &SelectionSet{
+				fields: []*selectionField{
+					{name: "foo"},
+				},
+			},
+			want: valueExpectations{object: []fieldExpectations{
+				{key: "foo", value: valueExpectations{scalar: "xyzzy"}},
+			}},
+		},
+		{
+			name: "Object/Method/ContextOnly",
+			goValueFunc: func(e errorfer) reflect.Value {
+				return reflect.ValueOf(&valueQueryMethodContextOnly{e: e})
+			},
+			typ: schema.query,
+			selectionSet: &SelectionSet{
+				fields: []*selectionField{
+					{name: "foo"},
+				},
+			},
+			want: valueExpectations{object: []fieldExpectations{
+				{key: "foo", value: valueExpectations{scalar: "xyzzy"}},
+			}},
+		},
+		{
+			name: "Object/Method/ArgsOnly",
+			goValueFunc: func(e errorfer) reflect.Value {
+				return reflect.ValueOf(&valueQueryMethodArgsOnly{e: e})
+			},
+			typ: schema.query,
+			selectionSet: &SelectionSet{
+				fields: []*selectionField{
+					{name: "foo"},
+				},
+			},
+			want: valueExpectations{object: []fieldExpectations{
+				{key: "foo", value: valueExpectations{scalar: "xyzzy"}},
+			}},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, errs := valueFromGo(context.Background(), test.goValue, test.typ, test.selectionSet)
+			goValue := test.goValue
+			if test.goValueFunc != nil {
+				goValue = test.goValueFunc(t)
+			}
+			got, errs := valueFromGo(context.Background(), goValue, test.typ, test.selectionSet)
 			if len(errs) > 0 {
-				t.Fatalf("errors: %+v", errs)
+				t.Fatalf("errors: %v", errs)
 			}
 			test.want.check(t, got)
 		})
@@ -157,6 +224,34 @@ func TestValueFromGo(t *testing.T) {
 type valueQueryStructFields struct {
 	Foo string
 	Bar string
+}
+
+type valueQueryMethodNoArgs struct{}
+
+func (valueQueryMethodNoArgs) Foo() string {
+	return "xyzzy"
+}
+
+type valueQueryMethodContextOnly struct {
+	e errorfer
+}
+
+func (q *valueQueryMethodContextOnly) Foo(ctx context.Context) string {
+	if ctx == nil {
+		q.e.Errorf("Foo received nil Context")
+	}
+	return "xyzzy"
+}
+
+type valueQueryMethodArgsOnly struct {
+	e errorfer
+}
+
+func (q *valueQueryMethodArgsOnly) Foo(args map[string]Value) string {
+	if len(args) > 0 {
+		q.e.Errorf("Foo received non-empty args: %v", args)
+	}
+	return "xyzzy"
 }
 
 type valueExpectations struct {
@@ -178,6 +273,9 @@ func (expect *valueExpectations) check(e errorfer, v Value) {
 		e.Errorf("v.Scalar() = %q; want %q", gotScalar, expect.scalar)
 	}
 	if len(expect.object) > 0 {
+		if v.IsNull() {
+			return
+		}
 		if v.Len() != len(expect.object) {
 			var gotKeys, wantKeys []string
 			for i := 0; i < v.Len(); i++ {
