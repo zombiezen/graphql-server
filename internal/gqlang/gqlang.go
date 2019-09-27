@@ -17,7 +17,11 @@
 // Package gqlang provides a parser for the GraphQL language.
 package gqlang
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // Document is a parsed GraphQL source.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Document
@@ -156,12 +160,129 @@ func (sval *ScalarValue) String() string {
 	return sval.Raw
 }
 
-// AsBool reads the scalar's boolean value.
-func (sval *ScalarValue) AsBool() bool {
-	if sval.Type != BooleanScalar {
-		return false
+// Value converts the raw scalar into a string. ok is false if sval
+// represents null.
+func (sval *ScalarValue) Value() (_ string, ok bool) {
+	switch sval.Type {
+	case BooleanScalar, EnumScalar, IntScalar, FloatScalar:
+		return sval.Raw, true
+	case StringScalar:
+		if strings.HasPrefix(sval.Raw, `"""`) {
+			return sval.blockStringValue(), true
+		}
+		return sval.stringValue(), true
+	default:
+		return "", false
 	}
-	return sval.Raw == "true"
+}
+
+func (sval *ScalarValue) stringValue() string {
+	raw := strings.TrimPrefix(sval.Raw, `"`)
+	raw = strings.TrimSuffix(raw, `"`)
+	sb := new(strings.Builder)
+	sb.Grow(len(raw))
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			sb.WriteByte(raw[i])
+			continue
+		}
+		i++ // skip past backslash
+		switch raw[i] {
+		case 'b':
+			sb.WriteByte('\b')
+		case 'f':
+			sb.WriteByte('\f')
+		case 'n':
+			sb.WriteByte('\n')
+		case 'r':
+			sb.WriteByte('\r')
+		case 't':
+			sb.WriteByte('\t')
+		case 'u':
+			codePoint, err := strconv.ParseUint(raw[i+1:i+5], 16, 16)
+			i += 4
+			if err != nil {
+				sb.WriteRune('\uFFFD') // Unicode replacement character
+			}
+			sb.WriteRune(rune(codePoint))
+		default:
+			sb.WriteByte(raw[i])
+		}
+	}
+	return sb.String()
+}
+
+func (sval *ScalarValue) blockStringValue() string {
+	raw := strings.TrimPrefix(sval.Raw, `"""`)
+	raw = strings.TrimSuffix(raw, `"""`)
+	raw = strings.ReplaceAll(raw, `\"""`, `"""`)
+	lines := splitLines(raw)
+	if len(lines) == 0 {
+		return ""
+	}
+
+	// Eliminate common indentation.
+	commonIndent := -1
+	for _, line := range lines[1:] {
+		indent := countLeadingWhitespace(line)
+		if indent < len(line) && (commonIndent == -1 || indent < commonIndent) {
+			commonIndent = indent
+		}
+	}
+	if commonIndent != -1 {
+		for i, line := range lines {
+			if i == 0 {
+				continue
+			}
+			if commonIndent < len(line) {
+				lines[i] = line[commonIndent:]
+			} else {
+				lines[i] = ""
+			}
+		}
+	}
+
+	// Strip leading and trailing blank lines.
+	for len(lines) > 0 && countLeadingWhitespace(lines[0]) == len(lines[0]) {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && countLeadingWhitespace(lines[len(lines)-1]) == len(lines[len(lines)-1]) {
+		lines = lines[:len(lines)-1]
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func splitLines(s string) []string {
+	lineStart := 0
+	var lines []string
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\r':
+			lines = append(lines, s[lineStart:i])
+			if i+1 < len(s) && s[i+1] == '\n' {
+				// CRLF, advance.
+				i++
+			}
+			lineStart = i + 1
+		case '\n':
+			lines = append(lines, s[lineStart:i])
+			lineStart = i + 1
+		}
+	}
+	if lineStart < len(s) {
+		lines = append(lines, s[lineStart:])
+	}
+	return lines
+}
+
+func countLeadingWhitespace(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] != ' ' && s[i] != '\t' {
+			return i
+		}
+	}
+	return len(s)
 }
 
 // ScalarType indicates the type of a ScalarValue.
