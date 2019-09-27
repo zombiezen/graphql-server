@@ -224,6 +224,15 @@ func (p *parser) field() (*Field, []error) {
 	if len(p.tokens) == 0 {
 		return f, nil
 	}
+	if p.tokens[0].kind == colon {
+		f.Alias = f.Name
+		f.Name = nil
+		p.next()
+		f.Name, err = p.name()
+		if err != nil {
+			return f, []error{xerrors.Errorf("field: %w", err)}
+		}
+	}
 	var errs []error
 	if p.tokens[0].kind == lparen {
 		var argsErrs []error
@@ -232,7 +241,7 @@ func (p *parser) field() (*Field, []error) {
 			errs = append(errs, xerrors.Errorf("field %s: %w", f.Name.Value, err))
 		}
 		if len(p.tokens) == 0 {
-			return f, nil
+			return f, errs
 		}
 	}
 	if p.tokens[0].kind == lbrace {

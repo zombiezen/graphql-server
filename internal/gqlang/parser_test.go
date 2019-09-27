@@ -180,6 +180,28 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
+			name:  "FieldAlias",
+			input: " { myAlias: field } ",
+			want: &Document{
+				Definitions: []*Definition{
+					{Operation: &Operation{
+						Start: 1,
+						Type:  Query,
+						SelectionSet: &SelectionSet{
+							LBrace: 1,
+							Sel: []*Selection{
+								{Field: &Field{
+									Alias: &Name{Value: "myAlias", Start: 3},
+									Name:  &Name{Value: "field", Start: 12},
+								}},
+							},
+							RBrace: 18,
+						},
+					}},
+				},
+			},
+		},
+		{
 			name:  "Variables",
 			input: "query getProfile($devicePicSize: Int) { user { profilePic(size: $devicePicSize) } }",
 			want: &Document{
