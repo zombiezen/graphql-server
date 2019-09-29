@@ -87,7 +87,7 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 	var data Value
 	switch op.Type {
 	case gqlang.Query:
-		data, errs = valueFromGo(ctx, srv.query, srv.schema.query, newSelectionSet(op.SelectionSet))
+		data, errs = valueFromGo(ctx, srv.query, srv.schema.query, newSelectionSet(srv.schema.query.obj, op.SelectionSet))
 	case gqlang.Mutation:
 		if !srv.mutation.IsValid() {
 			pos := op.Start.ToPosition(req.Query)
@@ -101,7 +101,7 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 				}},
 			}
 		}
-		data, errs = valueFromGo(ctx, srv.mutation, srv.schema.mutation, newSelectionSet(op.SelectionSet))
+		data, errs = valueFromGo(ctx, srv.mutation, srv.schema.mutation, newSelectionSet(srv.schema.mutation.obj, op.SelectionSet))
 	default:
 		pos := op.Start.ToPosition(req.Query)
 		return Response{

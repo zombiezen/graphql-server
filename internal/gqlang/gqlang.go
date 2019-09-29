@@ -133,6 +133,19 @@ type Arguments struct {
 	RParen Pos
 }
 
+// ByName returns the first argument with the given name or nil if not found.
+func (args *Arguments) ByName(name string) *Argument {
+	if args == nil {
+		return nil
+	}
+	for _, arg := range args.Args {
+		if arg.Name.Value == name {
+			return arg
+		}
+	}
+	return nil
+}
+
 // Argument is a single element in Arguments.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Arguments
 type Argument struct {

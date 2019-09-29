@@ -96,7 +96,7 @@ func (schema *Schema) validateRequest(input string, doc *gqlang.Document) []erro
 func validateSelectionSet(input string, typ *gqlType, set *gqlang.SelectionSet) []error {
 	var errs []error
 	for _, selection := range set.Sel {
-		fieldType := typ.obj.fields[selection.Field.Name.Value]
+		fieldType := typ.obj.fields[selection.Field.Name.Value].typ
 		if fieldType == nil {
 			// Field not found.
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Field-Selections-on-Objects-Interfaces-and-Unions-Types

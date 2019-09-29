@@ -86,7 +86,7 @@ func buildTypeMap(doc *gqlang.Document) map[string]*gqlType {
 		case t.Object != nil:
 			typeMap[t.Object.Name.Value] = newObjectType(&objectType{
 				name:   t.Object.Name.Value,
-				fields: make(map[string]*gqlType),
+				fields: make(map[string]objectTypeField),
 			})
 		}
 	}
@@ -98,7 +98,23 @@ func buildTypeMap(doc *gqlang.Document) map[string]*gqlType {
 		obj := defn.Type.Object
 		info := typeMap[obj.Name.Value].obj
 		for _, fieldDefn := range obj.Fields.Defs {
-			info.fields[fieldDefn.Name.Value] = resolveTypeRef(typeMap, fieldDefn.Type)
+			typ := resolveTypeRef(typeMap, fieldDefn.Type)
+			f := objectTypeField{
+				typ: typ,
+			}
+			if fieldDefn.Args != nil {
+				f.args = make(map[string]inputValueDefinition)
+				for _, arg := range fieldDefn.Args.Args {
+					name := arg.Name.Value
+					typ := resolveTypeRef(typeMap, arg.Type)
+					defaultValue := Value{typ: typ}
+					if arg.Default != nil {
+						defaultValue = coerceInputValue(typ, arg.Default.Value)
+					}
+					f.args[name] = inputValueDefinition{defaultValue: defaultValue}
+				}
+			}
+			info.fields[fieldDefn.Name.Value] = f
 		}
 	}
 	return typeMap

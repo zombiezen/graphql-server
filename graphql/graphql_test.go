@@ -32,10 +32,15 @@ func TestExecute(t *testing.T) {
 			myInt: Int
 			myInt32: Int
 
-			noArgsMethod: String
-			contextOnlyMethod: String
-			argsOnlyMethod: String
-			contextAndArgsMethod: String
+			niladicNoArgsMethod: String
+			niladicContextOnlyMethod: String
+			niladicArgsOnlyMethod: String
+			niladicContextAndArgsMethod: String
+
+			noArgsMethod(echo: String): String
+			contextOnlyMethod(echo: String): String
+			argsOnlyMethod(echo: String): String
+			contextAndArgsMethod(echo: String): String
 		}
 
 	`
@@ -203,6 +208,46 @@ func TestExecute(t *testing.T) {
 			},
 		},
 		{
+			name: "Object/NiladicMethod/NoArgs",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			query: `{ niladicNoArgsMethod }`,
+			want: []fieldExpectations{
+				{key: "niladicNoArgsMethod", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		},
+		{
+			name: "Object/NiladicMethod/ContextOnly",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			query: `{ niladicContextOnlyMethod }`,
+			want: []fieldExpectations{
+				{key: "niladicContextOnlyMethod", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		},
+		{
+			name: "Object/NiladicMethod/ArgsOnly",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			query: `{ niladicArgsOnlyMethod }`,
+			want: []fieldExpectations{
+				{key: "niladicArgsOnlyMethod", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		},
+		{
+			name: "Object/NiladicMethod/ContextAndArgs",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			query: `{ niladicContextAndArgsMethod }`,
+			want: []fieldExpectations{
+				{key: "niladicContextAndArgsMethod", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		},
+		{
 			name: "Object/Method/NoArgs",
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
@@ -223,7 +268,7 @@ func TestExecute(t *testing.T) {
 			},
 		},
 		{
-			name: "Object/Method/ArgsOnly",
+			name: "Object/Method/ArgsOnly/Null",
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
@@ -233,13 +278,33 @@ func TestExecute(t *testing.T) {
 			},
 		},
 		{
-			name: "Object/Method/ContextAndArgs",
+			name: "Object/Method/ArgsOnly/Value",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			query: `{ argsOnlyMethod(echo: "foo") }`,
+			want: []fieldExpectations{
+				{key: "argsOnlyMethod", value: valueExpectations{scalar: "fooxyzzy"}},
+			},
+		},
+		{
+			name: "Object/Method/ContextAndArgs/Null",
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
 			query: `{ contextAndArgsMethod }`,
 			want: []fieldExpectations{
 				{key: "contextAndArgsMethod", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		},
+		{
+			name: "Object/Method/ContextAndArgs/Value",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			query: `{ contextAndArgsMethod(echo: "foo") }`,
+			want: []fieldExpectations{
+				{key: "contextAndArgsMethod", value: valueExpectations{scalar: "fooxyzzy"}},
 			},
 		},
 		{
@@ -285,6 +350,34 @@ type testQueryStruct struct {
 	e errorfer
 }
 
+func (q *testQueryStruct) NiladicNoArgsMethod() string {
+	return "xyzzy"
+}
+
+func (q *testQueryStruct) NiladicContextOnlyMethod(ctx context.Context) string {
+	if ctx == nil {
+		q.e.Errorf("Foo received nil Context")
+	}
+	return "xyzzy"
+}
+
+func (q *testQueryStruct) NiladicArgsOnlyMethod(args map[string]Value) string {
+	if len(args) > 0 {
+		q.e.Errorf("Foo received non-empty args: %v", args)
+	}
+	return "xyzzy"
+}
+
+func (q *testQueryStruct) NiladicContextAndArgsMethod(ctx context.Context, args map[string]Value) string {
+	if ctx == nil {
+		q.e.Errorf("Foo received nil Context")
+	}
+	if len(args) > 0 {
+		q.e.Errorf("Foo received non-empty args: %v", args)
+	}
+	return "xyzzy"
+}
+
 func (q *testQueryStruct) NoArgsMethod() string {
 	return "xyzzy"
 }
@@ -297,17 +390,32 @@ func (q *testQueryStruct) ContextOnlyMethod(ctx context.Context) string {
 }
 
 func (q *testQueryStruct) ArgsOnlyMethod(args map[string]Value) string {
-	if len(args) > 0 {
-		q.e.Errorf("Foo received non-empty args: %v", args)
+	if len(args) != 1 {
+		q.e.Errorf("Foo received args: %v", args)
+	} else {
+		for key := range args {
+			if key != "echo" {
+				q.e.Errorf("Foo received args: %v", args)
+			}
+		}
 	}
-	return "xyzzy"
+	return args["echo"].Scalar() + "xyzzy"
 }
 
 func (q *testQueryStruct) ContextAndArgsMethod(ctx context.Context, args map[string]Value) string {
-	if len(args) > 0 {
-		q.e.Errorf("Foo received non-empty args: %v", args)
+	if ctx == nil {
+		q.e.Errorf("Foo received nil Context")
 	}
-	return "xyzzy"
+	if len(args) != 1 {
+		q.e.Errorf("Foo received args: %v", args)
+	} else {
+		for key := range args {
+			if key != "echo" {
+				q.e.Errorf("Foo received args: %v", args)
+			}
+		}
+	}
+	return args["echo"].Scalar() + "xyzzy"
 }
 
 func newString(s string) *string { return &s }

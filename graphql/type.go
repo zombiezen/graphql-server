@@ -38,7 +38,20 @@ type gqlType struct {
 
 type objectType struct {
 	name   string
-	fields map[string]*gqlType
+	fields map[string]objectTypeField
+}
+
+type objectTypeField struct {
+	typ  *gqlType
+	args map[string]inputValueDefinition
+}
+
+type inputValueDefinition struct {
+	defaultValue Value
+}
+
+func (ivd inputValueDefinition) typ() *gqlType {
+	return ivd.defaultValue.typ
 }
 
 // Predefined types.

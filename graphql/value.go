@@ -25,9 +25,12 @@ import (
 	"strconv"
 
 	"golang.org/x/xerrors"
+	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
 
-// A Value is a typed GraphQL datum.
+// A Value is a GraphQL value. The zero value is an untyped null.
+//
+// For more information on GraphQL types, see https://graphql.org/learn/schema/#type-system
 type Value struct {
 	typ *gqlType
 	val interface{} // one of nil, string, []Value, []Field, or map[string]Value.
@@ -85,7 +88,7 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 		}
 		gqlFields := make([]Field, 0, len(sel.fields))
 		for _, f := range sel.fields {
-			fval, err := readField(ctx, goValue, f.name, f.args, typ.obj.fields[f.name], f.sub)
+			fval, err := readField(ctx, goValue, f.name, f.args, typ.obj.fields[f.name].typ, f.sub)
 			if err != nil {
 				return Value{}, err
 			}
@@ -94,6 +97,37 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 		return Value{typ: typ, val: gqlFields}, nil
 	default:
 		return Value{typ: typ}, []error{xerrors.Errorf("unhandled type: %v", typ)}
+	}
+}
+
+// coerceArgumentValues uses the algorithm in
+// https://graphql.github.io/graphql-spec/June2018/#sec-Coercing-Field-Arguments
+// but assumes the arguments were validated.
+func coerceArgumentValues(fieldInfo objectTypeField, args *gqlang.Arguments) map[string]Value {
+	argValues := make(map[string]Value)
+	for name, defn := range fieldInfo.args {
+		arg := args.ByName(name)
+		// TODO(soon): If arg is a variable.
+		if arg == nil {
+			argValues[name] = defn.defaultValue
+			continue
+		}
+		argValues[name] = coerceInputValue(defn.typ(), arg.Value)
+	}
+	return argValues
+}
+
+func coerceInputValue(typ *gqlType, inputValue *gqlang.InputValue) Value {
+	switch {
+	case inputValue.Null != nil:
+		return Value{typ: typ}
+	case inputValue.Scalar != nil:
+		return Value{
+			typ: typ,
+			val: inputValue.Scalar.Value(),
+		}
+	default:
+		panic("unhandled input type")
 	}
 }
 

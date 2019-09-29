@@ -26,18 +26,20 @@ type SelectionSet struct {
 	fields []*selectionField
 }
 
-func newSelectionSet(ast *gqlang.SelectionSet) *SelectionSet {
+func newSelectionSet(typ *objectType, ast *gqlang.SelectionSet) *SelectionSet {
 	if ast == nil {
 		return nil
 	}
 	set := new(SelectionSet)
 	for _, sel := range ast.Sel {
 		if sel.Field != nil {
-			// TODO(soon): args
+			name := sel.Field.Name.Value
+			fieldInfo := typ.fields[name]
 			field := &selectionField{
-				name: sel.Field.Name.Value,
-				key:  sel.Field.Name.Value,
-				sub:  newSelectionSet(sel.Field.SelectionSet),
+				name: name,
+				key:  name,
+				sub:  newSelectionSet(fieldInfo.typ.obj, sel.Field.SelectionSet),
+				args: coerceArgumentValues(fieldInfo, sel.Field.Arguments),
 			}
 			if sel.Field.Alias != nil {
 				field.key = sel.Field.Alias.Value
