@@ -26,10 +26,12 @@ import (
 
 func TestValidateRequest(t *testing.T) {
 	// Schema from https://graphql.github.io/graphql-spec/June2018/#example-26a9d
+	// and https://graphql.github.io/graphql-spec/June2018/#example-1891c
 	// TODO(soon): Fill out all missing parts.
 	const schemaSource = `
 		type Query {
 			dog: Dog
+			arguments: Arguments
 		}
 
 		scalar DogCommand
@@ -49,6 +51,16 @@ func TestValidateRequest(t *testing.T) {
 
 		type Mutation {
 			mutateDog: ID
+		}
+
+		type Arguments {
+			multipleReqs(x: Int!, y: Int!): Int!
+			booleanArgField(booleanArg: Boolean): Boolean
+			floatArgField(floatArg: Float): Float
+			intArgField(intArg: Int): Int
+			nonNullBooleanArgField(nonNullBooleanArg: Boolean!): Boolean!
+			booleanListArgField(booleanListArg: [Boolean]!): [Boolean]
+			optionalNonNullBooleanArgField(optionalBooleanArg: Boolean! = false): Boolean!
 		}`
 	schema, err := ParseSchema(schemaSource)
 	if err != nil {
@@ -285,6 +297,129 @@ func TestValidateRequest(t *testing.T) {
 					},
 					Path: []PathSegment{
 						{Field: "dog"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-760cb
+			name: "Arguments/Names/Valid",
+			request: `
+				{
+					dog {
+						doesKnowCommand(dogCommand: SIT)
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-d5639
+			name: "Arguments/Names/Invalid",
+			request: `
+				{
+					dog {
+						doesKnowCommand(command: CLEAN_UP_HOUSE)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 65},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
+			name: "Arguments/Unique",
+			request: `
+				{
+					dog {
+						doesKnowCommand(dogCommand: SIT, dogCommand: DOWN)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 65},
+						{4, 82},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-503bd
+			name: "Arguments/Required/Valid",
+			request: `
+				query goodBooleanArg {
+					arguments {
+						booleanArgField(booleanArg: true)
+					}
+				}
+
+				query goodNonNullArg {
+					arguments {
+						nonNullBooleanArgField(nonNullBooleanArg: true)
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-1f1d2
+			name: "Arguments/Required/OmitNullable",
+			request: `
+				{
+					arguments {
+						booleanArgField
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-f12a1
+			name: "Arguments/Required/MissingRequiredArg",
+			request: `
+				{
+					arguments {
+						nonNullBooleanArgField
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 71},
+					},
+					Path: []PathSegment{
+						{Field: "arguments"},
+						{Field: "nonNullBooleanArgField"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-0bc81
+			name: "Arguments/Required/NullForRequiredArg",
+			request: `
+				{
+					arguments {
+						nonNullBooleanArgField(nonNullBooleanArg: null)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 91},
+					},
+					Path: []PathSegment{
+						{Field: "arguments"},
+						{Field: "nonNullBooleanArgField"},
 					},
 				},
 			},

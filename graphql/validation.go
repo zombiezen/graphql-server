@@ -95,13 +95,13 @@ func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []err
 func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet) []error {
 	var errs []error
 	for _, selection := range set.Sel {
-		fieldType := typ.obj.fields[selection.Field.Name.Value].typ
+		fieldInfo := typ.obj.fields[selection.Field.Name.Value]
 		loc := astPositionToLocation(selection.Field.Name.Start.ToPosition(source))
-		if fieldType == nil {
+		if fieldInfo.typ == nil {
 			// Field not found.
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Field-Selections-on-Objects-Interfaces-and-Unions-Types
 			errs = append(errs, &ResponseError{
-				Message:   fmt.Sprintf("field %q not found on type %v", selection.Field.Name.Value, fieldType),
+				Message:   fmt.Sprintf("field %q not found on type %v", selection.Field.Name.Value, typ),
 				Locations: []Location{loc},
 				Path: []PathSegment{
 					{Field: selection.Field.Key()},
@@ -109,8 +109,21 @@ func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet)
 			})
 			continue
 		}
+		// https://graphql.github.io/graphql-spec/June2018/#sec-Validation.Arguments
+		argsErrs := validateArguments(source, fieldInfo.args, selection.Field.Arguments)
+		if len(argsErrs) > 0 {
+			argsPos := selection.Field.Name.End()
+			if selection.Field.Arguments != nil {
+				argsPos = selection.Field.Arguments.RParen
+			}
+			argsLoc := astPositionToLocation(argsPos.ToPosition(source))
+			for _, err := range argsErrs {
+				errs = append(errs, wrapFieldError(selection.Field.Key(), argsLoc, err))
+			}
+		}
+
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Leaf-Field-Selections
-		if subsetType := fieldType.selectionSetType(); subsetType != nil {
+		if subsetType := fieldInfo.typ.selectionSetType(); subsetType != nil {
 			if selection.Field.SelectionSet == nil {
 				errs = append(errs, &ResponseError{
 					Message: fmt.Sprintf("object field %q missing selection set", selection.Field.Name.Value),
@@ -125,7 +138,7 @@ func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet)
 			}
 			subErrs := validateSelectionSet(source, subsetType, selection.Field.SelectionSet)
 			for _, err := range subErrs {
-				errs = append(errs, wrapFieldError(selection.Field.Name.Value, loc, err))
+				errs = append(errs, wrapFieldError(selection.Field.Key(), loc, err))
 			}
 		} else if selection.Field.SelectionSet != nil {
 			errs = append(errs, &ResponseError{
@@ -135,6 +148,72 @@ func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet)
 				},
 				Path: []PathSegment{
 					{Field: selection.Field.Key()},
+				},
+			})
+		}
+	}
+	return errs
+}
+
+func validateArguments(source string, defns map[string]inputValueDefinition, args *gqlang.Arguments) []error {
+	var argumentNames []string
+	argumentsByName := make(map[string][]*gqlang.Argument)
+	var endLocation []Location
+	var errs []error
+	if args != nil {
+		for _, arg := range args.Args {
+			name := arg.Name.Value
+			if len(argumentsByName[name]) == 0 {
+				argumentNames = append(argumentNames, name)
+			}
+			argumentsByName[name] = append(argumentsByName[name], arg)
+		}
+		for _, name := range argumentNames {
+			// https://graphql.github.io/graphql-spec/June2018/#sec-Argument-Names
+			if defns[name].typ() == nil {
+				err := &ResponseError{
+					Message: fmt.Sprintf("unknown argument %s", name),
+				}
+				for _, arg := range argumentsByName[name] {
+					err.Locations = append(err.Locations, astPositionToLocation(arg.Name.Start.ToPosition(source)))
+				}
+				errs = append(errs, err)
+				continue
+			}
+			// https://graphql.github.io/graphql-spec/June2018/#sec-Argument-Uniqueness
+			if args := argumentsByName[name]; len(args) > 1 {
+				err := &ResponseError{
+					Message: fmt.Sprintf("multiple values for argument %s", name),
+				}
+				for _, arg := range argumentsByName[name] {
+					err.Locations = append(err.Locations, astPositionToLocation(arg.Name.Start.ToPosition(source)))
+				}
+				errs = append(errs, err)
+				continue
+			}
+		}
+		endLocation = []Location{
+			astPositionToLocation(args.RParen.ToPosition(source)),
+		}
+	}
+	// https://graphql.github.io/graphql-spec/June2018/#sec-Required-Arguments
+	for name, defn := range defns {
+		if defn.typ().isNullable() || !defn.defaultValue.IsNull() {
+			continue
+		}
+		if len(argumentsByName[name]) == 0 {
+			errs = append(errs, &ResponseError{
+				Message:   fmt.Sprintf("missing required argument %s", name),
+				Locations: endLocation,
+			})
+			continue
+		}
+		arg := argumentsByName[name][0]
+		if arg.Value.Null != nil {
+			errs = append(errs, &ResponseError{
+				Message: fmt.Sprintf("required argument %s cannot be null", name),
+				Locations: []Location{
+					astPositionToLocation(arg.Value.Null.Start.ToPosition(source)),
 				},
 			})
 		}
