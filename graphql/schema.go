@@ -31,8 +31,8 @@ type Schema struct {
 }
 
 // ParseSchema parses a GraphQL document containing type definitions.
-func ParseSchema(input string) (*Schema, error) {
-	doc, errs := gqlang.Parse(input)
+func ParseSchema(source string) (*Schema, error) {
+	doc, errs := gqlang.Parse(source)
 	if len(errs) > 0 {
 		msgBuilder := new(strings.Builder)
 		msgBuilder.WriteString("parse schema:")
@@ -48,7 +48,7 @@ func ParseSchema(input string) (*Schema, error) {
 	}
 	for _, defn := range doc.Definitions {
 		if defn.Operation != nil {
-			return nil, xerrors.Errorf("parse schema: %v: operations not allowed in schemas", defn.Operation.Start.ToPosition(input))
+			return nil, xerrors.Errorf("parse schema: %v: operations not allowed in schemas", defn.Operation.Start.ToPosition(source))
 		}
 	}
 	typeMap := buildTypeMap(doc)

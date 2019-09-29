@@ -25,7 +25,7 @@ import (
 
 // validateRequest validates a parsed GraphQL request according to the procedure
 // defined in https://graphql.github.io/graphql-spec/June2018/#sec-Validation.
-func (schema *Schema) validateRequest(input string, doc *gqlang.Document) []error {
+func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []error {
 	var errs []error
 	var anonPosList []gqlang.Pos
 	operationsByName := make(map[string][]gqlang.Pos)
@@ -35,7 +35,7 @@ func (schema *Schema) validateRequest(input string, doc *gqlang.Document) []erro
 			errs = append(errs, &ResponseError{
 				Message: "not an operation nor a fragment",
 				Locations: []Location{
-					astPositionToLocation(defn.Start().ToPosition(input)),
+					astPositionToLocation(defn.Start().ToPosition(source)),
 				},
 			})
 			continue
@@ -51,14 +51,14 @@ func (schema *Schema) validateRequest(input string, doc *gqlang.Document) []erro
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Lone-Anonymous-Operation
 		errs = append(errs, &ResponseError{
 			Message:   "multiple anonymous operations",
-			Locations: posListToLocationList(input, anonPosList),
+			Locations: posListToLocationList(source, anonPosList),
 		})
 	}
 	if len(anonPosList) > 0 && len(operationsByName) > 0 {
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Lone-Anonymous-Operation
 		errs = append(errs, &ResponseError{
 			Message:   "anonymous operations mixed with named operations",
-			Locations: posListToLocationList(input, anonPosList),
+			Locations: posListToLocationList(source, anonPosList),
 		})
 	}
 	for name, posList := range operationsByName {
@@ -66,7 +66,7 @@ func (schema *Schema) validateRequest(input string, doc *gqlang.Document) []erro
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Operation-Name-Uniqueness
 			errs = append(errs, &ResponseError{
 				Message:   fmt.Sprintf("multiple operations with name %q", name),
-				Locations: posListToLocationList(input, posList),
+				Locations: posListToLocationList(source, posList),
 			})
 		}
 	}
@@ -83,17 +83,17 @@ func (schema *Schema) validateRequest(input string, doc *gqlang.Document) []erro
 			errs = append(errs, &ResponseError{
 				Message: fmt.Sprintf("%v unsupported", op.Type),
 				Locations: []Location{
-					astPositionToLocation(defn.Operation.Start.ToPosition(input)),
+					astPositionToLocation(defn.Operation.Start.ToPosition(source)),
 				},
 			})
 			continue
 		}
-		errs = append(errs, validateSelectionSet(input, opType, op.SelectionSet)...)
+		errs = append(errs, validateSelectionSet(source, opType, op.SelectionSet)...)
 	}
 	return errs
 }
 
-func validateSelectionSet(input string, typ *gqlType, set *gqlang.SelectionSet) []error {
+func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet) []error {
 	var errs []error
 	for _, selection := range set.Sel {
 		fieldType := typ.obj.fields[selection.Field.Name.Value].typ
@@ -103,7 +103,7 @@ func validateSelectionSet(input string, typ *gqlType, set *gqlang.SelectionSet) 
 			errs = append(errs, &ResponseError{
 				Message: fmt.Sprintf("field %q not found on type %v", selection.Field.Name.Value, fieldType),
 				Locations: []Location{
-					astPositionToLocation(selection.Field.Name.Start.ToPosition(input)),
+					astPositionToLocation(selection.Field.Name.Start.ToPosition(source)),
 				},
 			})
 			continue
@@ -114,12 +114,12 @@ func validateSelectionSet(input string, typ *gqlType, set *gqlang.SelectionSet) 
 				errs = append(errs, &ResponseError{
 					Message: fmt.Sprintf("object field %q missing selection set", selection.Field.Name.Value),
 					Locations: []Location{
-						astPositionToLocation(selection.Field.End().ToPosition(input)),
+						astPositionToLocation(selection.Field.End().ToPosition(source)),
 					},
 				})
 				continue
 			}
-			subErrs := validateSelectionSet(input, subsetType, selection.Field.SelectionSet)
+			subErrs := validateSelectionSet(source, subsetType, selection.Field.SelectionSet)
 			for _, err := range subErrs {
 				// TODO(soon): Add path element to error.
 				errs = append(errs, xerrors.Errorf("field %s: %w", selection.Field.Name.Value, err))
@@ -128,7 +128,7 @@ func validateSelectionSet(input string, typ *gqlType, set *gqlang.SelectionSet) 
 			errs = append(errs, &ResponseError{
 				Message: fmt.Sprintf("scalar field %q must not have selection set", selection.Field.Name.Value),
 				Locations: []Location{
-					astPositionToLocation(selection.Field.SelectionSet.LBrace.ToPosition(input)),
+					astPositionToLocation(selection.Field.SelectionSet.LBrace.ToPosition(source)),
 				},
 			})
 		}
@@ -136,10 +136,10 @@ func validateSelectionSet(input string, typ *gqlType, set *gqlang.SelectionSet) 
 	return errs
 }
 
-func posListToLocationList(input string, posList []gqlang.Pos) []Location {
+func posListToLocationList(source string, posList []gqlang.Pos) []Location {
 	locList := make([]Location, len(posList))
 	for i := range locList {
-		locList[i] = astPositionToLocation(posList[i].ToPosition(input))
+		locList[i] = astPositionToLocation(posList[i].ToPosition(source))
 	}
 	return locList
 }
