@@ -23,7 +23,7 @@ import (
 // A SelectionSet is a collection of object fields that a client is requesting
 // for the server to return. The zero value or nil is an empty set.
 type SelectionSet struct {
-	fields []*selectionField
+	fields []*SelectedField
 }
 
 func newSelectionSet(typ *objectType, ast *gqlang.SelectionSet) *SelectionSet {
@@ -35,7 +35,7 @@ func newSelectionSet(typ *objectType, ast *gqlang.SelectionSet) *SelectionSet {
 		if sel.Field != nil {
 			name := sel.Field.Name.Value
 			fieldInfo := typ.fields[name]
-			field := &selectionField{
+			field := &SelectedField{
 				name: name,
 				key:  name,
 				sub:  newSelectionSet(fieldInfo.typ.obj, sel.Field.SelectionSet),
@@ -63,22 +63,23 @@ func (sel *SelectionSet) Has(name string) bool {
 	return false
 }
 
-// Arguments returns all the different arguments that the given field is
-// invoked with. The caller must not modify the returned maps.
-func (sel *SelectionSet) Arguments(name string) []map[string]Value {
+// FieldsWithName returns the fields in the selection set with the given name.
+// There may be multiple in the case of a field alias.
+func (sel *SelectionSet) FieldsWithName(name string) []*SelectedField {
 	if sel == nil {
 		return nil
 	}
-	var args []map[string]Value
+	var fields []*SelectedField
 	for _, f := range sel.fields {
 		if f.name == name {
-			args = append(args, f.args)
+			fields = append(fields, f)
 		}
 	}
-	return args
+	return fields
 }
 
-type selectionField struct {
+// SelectedField is a field in a selection set.
+type SelectedField struct {
 	// key is the response object key to be used. Usually the same as name.
 	key string
 	// name is the object field name.
@@ -86,4 +87,16 @@ type selectionField struct {
 
 	args map[string]Value
 	sub  *SelectionSet
+}
+
+// Arg returns the argument with the given name or a null Value if the argument
+// doesn't exist.
+func (f *SelectedField) Arg(name string) Value {
+	return f.args[name]
+}
+
+// SelectionSet returns the field's selection set or nil if the field doesn't
+// have one.
+func (f *SelectedField) SelectionSet() *SelectionSet {
+	return f.sub
 }
