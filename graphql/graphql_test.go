@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"golang.org/x/xerrors"
 )
 
 func TestExecute(t *testing.T) {
@@ -41,6 +42,9 @@ func TestExecute(t *testing.T) {
 			contextOnlyMethod(echo: String): String
 			argsOnlyMethod(echo: String): String
 			contextAndArgsMethod(echo: String): String
+
+			nilErrorMethod: String
+			errorMethod: String
 		}
 
 	`
@@ -49,6 +53,7 @@ func TestExecute(t *testing.T) {
 		queryObject func(e errorfer) interface{}
 		query       string
 		want        []fieldExpectations
+		wantErrors  []*ResponseError
 	}{
 		{
 			name: "String/Empty",
@@ -308,6 +313,74 @@ func TestExecute(t *testing.T) {
 			},
 		},
 		{
+			name: "Object/Method/Error",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			query: `{ errorMethod }`,
+			want: []fieldExpectations{
+				{key: "errorMethod", value: valueExpectations{null: true}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{{1, 3}},
+					Path:      []PathSegment{{Field: "errorMethod"}},
+				},
+			},
+		},
+		{
+			name: "Object/Method/Error/Alias",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			query: `{ myAlias: errorMethod }`,
+			want: []fieldExpectations{
+				{key: "myAlias", value: valueExpectations{null: true}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{{1, 3}},
+					Path:      []PathSegment{{Field: "myAlias"}},
+				},
+			},
+		},
+		{
+			name: "Object/Method/Error/PartialObject",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyInt: newInt(42)}
+			},
+			query: `{
+				error1: errorMethod
+				myInt
+				error2: errorMethod
+			}`,
+			want: []fieldExpectations{
+				{key: "error1", value: valueExpectations{null: true}},
+				{key: "myInt", value: valueExpectations{scalar: "42"}},
+				{key: "error2", value: valueExpectations{null: true}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{{2, 33}},
+					Path:      []PathSegment{{Field: "error1"}},
+				},
+				{
+					Locations: []Location{{4, 33}},
+					Path:      []PathSegment{{Field: "error2"}},
+				},
+			},
+		},
+		{
+			name: "Object/Method/Error/Nil",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			query: `{ nilErrorMethod }`,
+			want: []fieldExpectations{
+				{key: "nilErrorMethod", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		},
+		{
 			name: "Object/Alias",
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt32: newInt32(42)}
@@ -332,8 +405,11 @@ func TestExecute(t *testing.T) {
 				t.Fatal(err)
 			}
 			resp := srv.Execute(ctx, Request{Query: test.query})
-			if len(resp.Errors) > 0 {
-				t.Fatal("Errors:", resp.Errors)
+			for _, e := range resp.Errors {
+				t.Logf("Error: %s", e.Message)
+			}
+			if diff := compareErrors(test.wantErrors, resp.Errors); diff != "" {
+				t.Errorf("errors (-want +got):\n%s", diff)
 			}
 			expect := &valueExpectations{object: test.want}
 			expect.check(t, resp.Data)
@@ -416,6 +492,14 @@ func (q *testQueryStruct) ContextAndArgsMethod(ctx context.Context, args map[str
 		}
 	}
 	return args["echo"].Scalar() + "xyzzy"
+}
+
+func (q *testQueryStruct) NilErrorMethod() (string, error) {
+	return "xyzzy", nil
+}
+
+func (q *testQueryStruct) ErrorMethod() (string, error) {
+	return "xyzzy", xerrors.New("I have failed")
 }
 
 func newString(s string) *string { return &s }

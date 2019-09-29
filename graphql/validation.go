@@ -19,7 +19,6 @@ package graphql
 import (
 	"fmt"
 
-	"golang.org/x/xerrors"
 	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
 
@@ -97,13 +96,15 @@ func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet)
 	var errs []error
 	for _, selection := range set.Sel {
 		fieldType := typ.obj.fields[selection.Field.Name.Value].typ
+		loc := astPositionToLocation(selection.Field.Name.Start.ToPosition(source))
 		if fieldType == nil {
 			// Field not found.
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Field-Selections-on-Objects-Interfaces-and-Unions-Types
 			errs = append(errs, &ResponseError{
-				Message: fmt.Sprintf("field %q not found on type %v", selection.Field.Name.Value, fieldType),
-				Locations: []Location{
-					astPositionToLocation(selection.Field.Name.Start.ToPosition(source)),
+				Message:   fmt.Sprintf("field %q not found on type %v", selection.Field.Name.Value, fieldType),
+				Locations: []Location{loc},
+				Path: []PathSegment{
+					{Field: selection.Field.Key()},
 				},
 			})
 			continue
@@ -116,19 +117,24 @@ func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet)
 					Locations: []Location{
 						astPositionToLocation(selection.Field.End().ToPosition(source)),
 					},
+					Path: []PathSegment{
+						{Field: selection.Field.Key()},
+					},
 				})
 				continue
 			}
 			subErrs := validateSelectionSet(source, subsetType, selection.Field.SelectionSet)
 			for _, err := range subErrs {
-				// TODO(soon): Add path element to error.
-				errs = append(errs, xerrors.Errorf("field %s: %w", selection.Field.Name.Value, err))
+				errs = append(errs, wrapFieldError(selection.Field.Name.Value, loc, err))
 			}
 		} else if selection.Field.SelectionSet != nil {
 			errs = append(errs, &ResponseError{
 				Message: fmt.Sprintf("scalar field %q must not have selection set", selection.Field.Name.Value),
 				Locations: []Location{
 					astPositionToLocation(selection.Field.SelectionSet.LBrace.ToPosition(source)),
+				},
+				Path: []PathSegment{
+					{Field: selection.Field.Key()},
 				},
 			})
 		}

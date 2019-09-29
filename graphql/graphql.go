@@ -87,7 +87,7 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 	var data Value
 	switch op.Type {
 	case gqlang.Query:
-		data, errs = valueFromGo(ctx, srv.query, srv.schema.query, newSelectionSet(srv.schema.query.obj, op.SelectionSet))
+		data, errs = valueFromGo(ctx, srv.query, srv.schema.query, newSelectionSet(req.Query, srv.schema.query.obj, op.SelectionSet))
 	case gqlang.Mutation:
 		if !srv.mutation.IsValid() {
 			pos := op.Start.ToPosition(req.Query)
@@ -101,7 +101,7 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 				}},
 			}
 		}
-		data, errs = valueFromGo(ctx, srv.mutation, srv.schema.mutation, newSelectionSet(srv.schema.mutation.obj, op.SelectionSet))
+		data, errs = valueFromGo(ctx, srv.mutation, srv.schema.mutation, newSelectionSet(req.Query, srv.schema.mutation.obj, op.SelectionSet))
 	default:
 		pos := op.Start.ToPosition(req.Query)
 		return Response{
@@ -169,24 +169,90 @@ func toResponseError(e error) *ResponseError {
 		// e is a *ResponseError.
 		return re
 	}
-	if xerrors.As(e, &re) {
-		// A *ResponseError is in the chain, but not the top-level.
-		// Wrap the new message.
-		return &ResponseError{
-			Message:   e.Error(),
-			Locations: re.Locations,
-			Path:      re.Path,
-		}
-	}
-
 	// Build a new response error.
 	re = &ResponseError{
 		Message: e.Error(),
 	}
-	if pos, ok := gqlang.ErrorPosition(e); ok {
+	unknownChain := e
+	for ; e != nil; e = xerrors.Unwrap(e) {
+		// TODO(someday): Call As in addition to type assignment.
+		switch e := e.(type) {
+		case *ResponseError:
+			re.Locations = append(re.Locations, e.Locations...)
+			re.Path = append(re.Path, e.Path...)
+			unknownChain = nil // leaf
+		case *fieldError:
+			re.Path = append(re.Path, PathSegment{Field: e.key})
+			if e.loc.Line > 0 {
+				re.Locations = append(re.Locations, e.loc)
+			}
+			unknownChain = e.Unwrap()
+		case *listElementError:
+			re.Path = append(re.Path, PathSegment{ListIndex: e.idx})
+			unknownChain = e.Unwrap()
+		}
+	}
+	if pos, ok := gqlang.ErrorPosition(unknownChain); ok {
 		re.Locations = []Location{astPositionToLocation(pos)}
 	}
 	return re
+}
+
+func hasLocation(e error) bool {
+	var re *ResponseError
+	if xerrors.As(e, &re) && len(re.Locations) > 0 {
+		return true
+	}
+	var fe *fieldError
+	if xerrors.As(e, &fe) {
+		return true
+	}
+	_, ok := gqlang.ErrorPos(e)
+	return ok
+}
+
+type fieldError struct {
+	key string
+	loc Location // if Line == 0, no location
+	err error
+}
+
+func wrapFieldError(key string, loc Location, err error) error {
+	if key == "" {
+		panic("empty key")
+	}
+	if loc.Line < 1 || loc.Column < 1 {
+		panic("invalid location")
+	}
+	if hasLocation(err) {
+		loc = Location{}
+	}
+	return &fieldError{
+		key: key,
+		loc: loc,
+		err: err,
+	}
+}
+
+func (e *fieldError) Error() string {
+	return fmt.Sprintf("field %s: %v", e.key, e.err)
+}
+
+func (e *fieldError) Unwrap() error {
+	return e.err
+}
+
+type listElementError struct {
+	idx int
+	err error
+}
+
+func (e *listElementError) Error() string {
+	return fmt.Sprintf("list[%d]: %v", e.idx, e.err)
+}
+
+func (e *listElementError) Unwrap() error {
+	return e.err
 }
 
 // Location identifies a position in a GraphQL document. Line and column

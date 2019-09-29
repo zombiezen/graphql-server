@@ -114,6 +114,23 @@ type Field struct {
 	SelectionSet *SelectionSet
 }
 
+// Key returns the field's response key. Typically, this is the field's name,
+// but if an alias is set then that will be used.
+func (f *Field) Key() string {
+	if f.Alias != nil {
+		return f.Alias.Value
+	}
+	return f.Name.Value
+}
+
+// Start returns the byte offset of the beginning of the field.
+func (f *Field) Start() Pos {
+	if f.Alias != nil {
+		return f.Alias.Start
+	}
+	return f.Name.Start
+}
+
 // End returns the byte offset after the end of the field.
 func (f *Field) End() Pos {
 	if f.SelectionSet != nil {

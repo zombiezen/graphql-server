@@ -73,9 +73,8 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 			var errs []error
 			gqlValues[i], errs = valueFromGo(ctx, goValue.Index(i), typ.list, sel)
 			if len(errs) > 0 {
-				// TODO(soon): Wrap with path segment.
 				for j := range errs {
-					errs[j] = xerrors.Errorf("list value [%d]: %w", i, errs[j])
+					errs[j] = &listElementError{idx: i, err: errs[j]}
 				}
 				// TODO(soon): Only return if element types are non-nullable.
 				return Value{typ: typ}, errs
@@ -87,14 +86,13 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 			return Value{typ: typ, val: []Field(nil)}, nil
 		}
 		gqlFields := make([]Field, 0, len(sel.fields))
+		var errs []error
 		for _, f := range sel.fields {
-			fval, err := readField(ctx, goValue, f.name, f.args, typ.obj.fields[f.name].typ, f.sub)
-			if err != nil {
-				return Value{}, err
-			}
+			fval, ferrs := readField(ctx, goValue, f, typ.obj.fields[f.name].typ)
 			gqlFields = append(gqlFields, Field{Key: f.key, Value: fval})
+			errs = append(errs, ferrs...)
 		}
-		return Value{typ: typ, val: gqlFields}, nil
+		return Value{typ: typ, val: gqlFields}, errs
 	default:
 		return Value{typ: typ}, []error{xerrors.Errorf("unhandled type: %v", typ)}
 	}
@@ -131,33 +129,38 @@ func coerceInputValue(typ *gqlType, inputValue *gqlang.InputValue) Value {
 	}
 }
 
-func readField(ctx context.Context, goValue reflect.Value, name string, args map[string]Value, typ *gqlType, sel *SelectionSet) (Value, []error) {
-	// TODO(soon): Wrap any error in this function with a field path segment.
-
+func readField(ctx context.Context, goValue reflect.Value, f *SelectedField, typ *gqlType) (Value, []error) {
 	// TODO(soon): Search over all fields and/or methods to find case-insensitive match.
-	goName := graphQLToGoFieldName(name)
+	goName := graphQLToGoFieldName(f.name)
 
-	if len(args) == 0 && goValue.Kind() == reflect.Struct {
+	if len(f.args) == 0 && goValue.Kind() == reflect.Struct {
 		if fieldValue := goValue.FieldByName(goName); fieldValue.IsValid() {
-			v, err := valueFromGo(ctx, fieldValue, typ, sel)
-			if err != nil {
-				return Value{typ: typ}, []error{xerrors.Errorf("field %s: %w", name, err)}
+			v, errs := valueFromGo(ctx, fieldValue, typ, f.sub)
+			if len(errs) > 0 {
+				for i := range errs {
+					errs[i] = wrapFieldError(f.key, f.loc, errs[i])
+				}
+				return Value{typ: typ}, errs
 			}
 			return v, nil
 		}
 	}
-	method := findFieldMethod(goValue, name)
+	method := findFieldMethod(goValue, f.name)
 	if !method.IsValid() {
-		return Value{typ: typ}, []error{xerrors.Errorf("field %s: no such method or field on %v", name, goValue.Type())}
+		return Value{typ: typ}, []error{&ResponseError{
+			Message:   fmt.Sprintf("no such method or field on %v", goValue.Type()),
+			Locations: []Location{f.loc},
+			Path:      []PathSegment{{Field: f.key}},
+		}}
 	}
-	methodResult, err := callFieldMethod(ctx, method, args, sel, typ.selectionSetType() != nil)
+	methodResult, err := callFieldMethod(ctx, method, f.args, f.sub, typ.selectionSetType() != nil)
 	if err != nil {
-		return Value{typ: typ}, []error{xerrors.Errorf("field %s: %w", name, err)}
+		return Value{typ: typ}, []error{wrapFieldError(f.key, f.loc, err)}
 	}
-	ret, errs := valueFromGo(ctx, methodResult, typ, sel)
+	ret, errs := valueFromGo(ctx, methodResult, typ, f.sub)
 	if len(errs) > 0 {
 		for i := range errs {
-			errs[i] = xerrors.Errorf("field %s: %w", name, errs[i])
+			errs[i] = wrapFieldError(f.key, f.loc, errs[i])
 		}
 	}
 	return ret, errs
@@ -181,6 +184,8 @@ var (
 )
 
 func callFieldMethod(ctx context.Context, method reflect.Value, args map[string]Value, sel *SelectionSet, passSel bool) (reflect.Value, error) {
+	// TODO(someday): Include type and method names in signature error messages.
+
 	mtype := method.Type()
 	numIn := mtype.NumIn()
 	var callArgs []reflect.Value
@@ -196,31 +201,33 @@ func callFieldMethod(ctx context.Context, method reflect.Value, args map[string]
 		}
 	}
 	if len(callArgs) != numIn {
-		return reflect.Value{}, xerrors.New("call field method: wrong parameter signature")
+		return reflect.Value{}, xerrors.New("server method: wrong parameter signature")
 	}
 
 	switch mtype.NumOut() {
 	case 1:
 		if mtype.Out(0) == errorGoType {
-			return reflect.Value{}, xerrors.New("call field method: return type must not be error")
+			return reflect.Value{}, xerrors.New("server method: return type must not be error")
 		}
 		out := method.Call(callArgs)
 		return out[0], nil
 	case 2:
 		if mtype.Out(0) == errorGoType {
-			return reflect.Value{}, xerrors.New("call field method: first return type must not be error")
+			return reflect.Value{}, xerrors.New("server method: first return type must not be error")
 		}
 		if got := mtype.Out(1); got != errorGoType {
-			return reflect.Value{}, xerrors.Errorf("call field method: second return type must be error (found %v)", got)
+			return reflect.Value{}, xerrors.Errorf("server method: second return type must be error (found %v)", got)
 		}
 		out := method.Call(callArgs)
 		if !out[1].IsNil() {
+			// Intentionally making the returned error opaque to avoid interference in
+			// toResponseError.
 			err := out[1].Interface().(error)
-			return reflect.Value{}, xerrors.Errorf("call field method: %w", err)
+			return reflect.Value{}, xerrors.Errorf("server error: %v", err)
 		}
 		return out[0], nil
 	default:
-		return reflect.Value{}, xerrors.New("call field method: wrong return signature")
+		return reflect.Value{}, xerrors.New("server method: wrong return signature")
 	}
 }
 

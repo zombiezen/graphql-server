@@ -56,9 +56,9 @@ func TestValidateRequest(t *testing.T) {
 	}
 
 	tests := []struct {
-		name               string
-		request            string
-		wantErrorLocations map[Location]struct{}
+		name       string
+		request    string
+		wantErrors []*ResponseError
 	}{
 		{
 			name: "OnlyExecutable/Valid",
@@ -69,7 +69,7 @@ func TestValidateRequest(t *testing.T) {
 						nickname
 					}
 				}`,
-			wantErrorLocations: nil,
+			wantErrors: nil,
 		},
 		{
 			// https://graphql.github.io/graphql-spec/June2018/#example-12752
@@ -85,13 +85,15 @@ func TestValidateRequest(t *testing.T) {
 				type Dog {
 					color: String
 				}`,
-			wantErrorLocations: map[Location]struct{}{
-				{9, 33}: {},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{{9, 33}},
+				},
 			},
 		},
 		{
 			// https://graphql.github.io/graphql-spec/June2018/#example-069e1
-			name: "NameUniqueness/Valid",
+			name: "OperationNameUniqueness/Valid",
 			request: `
 				query getDogName {
 					dog {
@@ -106,11 +108,11 @@ func TestValidateRequest(t *testing.T) {
 						}
 					}
 				}`,
-			wantErrorLocations: nil,
+			wantErrors: nil,
 		},
 		{
 			// https://graphql.github.io/graphql-spec/June2018/#example-5e409
-			name: "NameUniqueness/Invalid",
+			name: "OperationNameUniqueness/Invalid",
 			request: `
 				query getName {
 					dog {
@@ -125,14 +127,18 @@ func TestValidateRequest(t *testing.T) {
 						}
 					}
 				}`,
-			wantErrorLocations: map[Location]struct{}{
-				{2, 39}: {},
-				{8, 39}: {},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 39},
+						{8, 39},
+					},
+				},
 			},
 		},
 		{
 			// https://graphql.github.io/graphql-spec/June2018/#example-77c2e
-			name: "NameUniqueness/InvalidDifferentTypes",
+			name: "OperationNameUniqueness/InvalidDifferentTypes",
 			request: `
 				query dogOperation {
 					dog {
@@ -145,9 +151,13 @@ func TestValidateRequest(t *testing.T) {
 						id
 					}
 				}`,
-			wantErrorLocations: map[Location]struct{}{
-				{2, 39}: {},
-				{8, 42}: {},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 39},
+						{8, 42},
+					},
+				},
 			},
 		},
 		{
@@ -159,7 +169,7 @@ func TestValidateRequest(t *testing.T) {
 						name
 					}
 				}`,
-			wantErrorLocations: nil,
+			wantErrors: nil,
 		},
 		{
 			// https://graphql.github.io/graphql-spec/June2018/#example-44b85
@@ -178,8 +188,12 @@ func TestValidateRequest(t *testing.T) {
 						}
 					}
 				}`,
-			wantErrorLocations: map[Location]struct{}{
-				{2, 33}: {},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 33},
+					},
+				},
 			},
 		},
 		{
@@ -191,8 +205,37 @@ func TestValidateRequest(t *testing.T) {
 						meowVolume
 					}
 				}`,
-			wantErrorLocations: map[Location]struct{}{
-				{4, 49}: {},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 49},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "meowVolume"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-48706
+			name: "FieldSelection/NotDefinedWithAlias",
+			request: `
+				{
+					dog {
+						foo: meowVolume
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 54},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "foo"},
+					},
+				},
 			},
 		},
 		{
@@ -204,7 +247,7 @@ func TestValidateRequest(t *testing.T) {
 						barkVolume
 					}
 				}`,
-			wantErrorLocations: nil,
+			wantErrors: nil,
 		},
 		{
 			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-13b69
@@ -217,8 +260,16 @@ func TestValidateRequest(t *testing.T) {
 						}
 					}
 				}`,
-			wantErrorLocations: map[Location]struct{}{
-				{4, 60}: {},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 60},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "barkVolume"},
+					},
+				},
 			},
 		},
 		{
@@ -227,8 +278,15 @@ func TestValidateRequest(t *testing.T) {
 				{
 					dog
 				}`,
-			wantErrorLocations: map[Location]struct{}{
-				{3, 44}: {},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 44},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+					},
+				},
 			},
 		},
 	}
@@ -239,16 +297,26 @@ func TestValidateRequest(t *testing.T) {
 				t.Fatal(errs)
 			}
 			errs = schema.validateRequest(test.request, doc)
-			gotErrorLocations := make(map[Location]struct{})
-			for _, err := range errs {
-				for _, loc := range toResponseError(err).Locations {
-					gotErrorLocations[loc] = struct{}{}
-				}
+			got := make([]*ResponseError, len(errs))
+			for i := range got {
+				got[i] = toResponseError(errs[i])
+				t.Logf("Error: %s", got[i].Message)
 			}
-			diff := cmp.Diff(test.wantErrorLocations, gotErrorLocations, cmpopts.EquateEmpty())
-			if diff != "" {
-				t.Errorf("error locations (-want +got):\n%s", diff)
+			if diff := compareErrors(test.wantErrors, got); diff != "" {
+				t.Errorf("errors (-want +got):\n%s", diff)
 			}
 		})
 	}
+}
+
+func compareErrors(want, got []*ResponseError) string {
+	return cmp.Diff(want, got,
+		cmpopts.EquateEmpty(),
+		cmpopts.IgnoreFields(ResponseError{}, "Message"),
+		cmpopts.SortSlices(func(l, m Location) bool {
+			if l.Line == m.Line {
+				return l.Column < m.Column
+			}
+			return l.Line < m.Line
+		}))
 }

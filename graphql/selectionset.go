@@ -26,7 +26,7 @@ type SelectionSet struct {
 	fields []*SelectedField
 }
 
-func newSelectionSet(typ *objectType, ast *gqlang.SelectionSet) *SelectionSet {
+func newSelectionSet(source string, typ *objectType, ast *gqlang.SelectionSet) *SelectionSet {
 	if ast == nil {
 		return nil
 	}
@@ -38,7 +38,8 @@ func newSelectionSet(typ *objectType, ast *gqlang.SelectionSet) *SelectionSet {
 			field := &SelectedField{
 				name: name,
 				key:  name,
-				sub:  newSelectionSet(fieldInfo.typ.obj, sel.Field.SelectionSet),
+				loc:  astPositionToLocation(sel.Field.Start().ToPosition(source)),
+				sub:  newSelectionSet(source, fieldInfo.typ.obj, sel.Field.SelectionSet),
 				args: coerceArgumentValues(fieldInfo, sel.Field.Arguments),
 			}
 			if sel.Field.Alias != nil {
@@ -85,6 +86,7 @@ type SelectedField struct {
 	// name is the object field name.
 	name string
 
+	loc  Location
 	args map[string]Value
 	sub  *SelectionSet
 }
