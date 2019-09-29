@@ -144,6 +144,7 @@ type Argument struct {
 // An InputValue is a scalar or a variable reference.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Input-Values
 type InputValue struct {
+	Null        *Name
 	Scalar      *ScalarValue
 	VariableRef *Variable
 }
@@ -160,19 +161,15 @@ func (sval *ScalarValue) String() string {
 	return sval.Raw
 }
 
-// Value converts the raw scalar into a string. ok is false if sval
-// represents null.
-func (sval *ScalarValue) Value() (_ string, ok bool) {
-	switch sval.Type {
-	case BooleanScalar, EnumScalar, IntScalar, FloatScalar:
-		return sval.Raw, true
-	case StringScalar:
-		if strings.HasPrefix(sval.Raw, `"""`) {
-			return sval.blockStringValue(), true
-		}
-		return sval.stringValue(), true
+// Value converts the raw scalar into a string.
+func (sval *ScalarValue) Value() string {
+	switch {
+	case strings.HasPrefix(sval.Raw, `"""`):
+		return sval.blockStringValue()
+	case strings.HasPrefix(sval.Raw, `"`):
+		return sval.stringValue()
 	default:
-		return "", false
+		return sval.Raw
 	}
 }
 
@@ -290,12 +287,11 @@ type ScalarType int
 
 // Scalar types.
 const (
-	NullScalar ScalarType = iota
+	StringScalar ScalarType = iota
 	BooleanScalar
 	EnumScalar
 	IntScalar
 	FloatScalar
-	StringScalar
 )
 
 // A Variable is an input to a GraphQL operation.
@@ -314,6 +310,9 @@ type DefaultValue struct {
 
 // String returns the variable in the form "$foo".
 func (v *Variable) String() string {
+	if v == nil {
+		return ""
+	}
 	return "$" + v.Name.String()
 }
 

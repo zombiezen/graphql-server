@@ -352,13 +352,19 @@ func (p *parser) value(isConst bool) (*InputValue, []error) {
 		}}, nil
 	case name:
 		p.next()
+		if tok.source == "null" {
+			return &InputValue{
+				Null: &Name{
+					Start: tok.start,
+					Value: tok.source,
+				},
+			}, nil
+		}
 		val := &InputValue{Scalar: &ScalarValue{
 			Start: tok.start,
 			Raw:   tok.source,
 		}}
 		switch tok.source {
-		case "null":
-			val.Scalar.Type = NullScalar
 		case "false", "true":
 			val.Scalar.Type = BooleanScalar
 		default:

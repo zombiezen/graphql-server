@@ -25,14 +25,9 @@ import (
 
 func TestScalarValue(t *testing.T) {
 	tests := []struct {
-		val      ScalarValue
-		want     string
-		wantNull bool
+		val  ScalarValue
+		want string
 	}{
-		{
-			val:      ScalarValue{Type: NullScalar, Raw: "null"},
-			wantNull: true,
-		},
 		{
 			val:  ScalarValue{Type: BooleanScalar, Raw: "false"},
 			want: "false",
@@ -91,9 +86,9 @@ func TestScalarValue(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		got, ok := test.val.Value()
-		if got != test.want || ok != !test.wantNull {
-			t.Errorf("ScalarValue{Type: %v, Raw: %q}.Value() = %q, %t; want %q, %t", test.val.Type, test.val.Raw, got, ok, test.want, !test.wantNull)
+		got := test.val.Value()
+		if got != test.want {
+			t.Errorf("ScalarValue{Type: %v, Raw: %q}.Value() = %q; want %q", test.val.Type, test.val.Raw, got, test.want)
 		}
 	}
 }
