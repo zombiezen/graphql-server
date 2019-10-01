@@ -198,10 +198,10 @@ func validateArguments(source string, defns map[string]inputValueDefinition, arg
 	}
 	// https://graphql.github.io/graphql-spec/June2018/#sec-Required-Arguments
 	for name, defn := range defns {
-		if defn.typ().isNullable() || !defn.defaultValue.IsNull() {
+		if defn.typ().isNullable() {
 			continue
 		}
-		if len(argumentsByName[name]) == 0 {
+		if len(argumentsByName[name]) == 0 && defn.defaultValue.IsNull() {
 			errs = append(errs, &ResponseError{
 				Message:   fmt.Sprintf("missing required argument %s", name),
 				Locations: endLocation,

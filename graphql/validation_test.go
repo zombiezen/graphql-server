@@ -424,6 +424,26 @@ func TestValidateRequest(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Arguments/Required/NullForNonNullableArg",
+			request: `
+				{
+					arguments {
+						optionalNonNullBooleanArgField(optionalBooleanArg: null)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 100},
+					},
+					Path: []PathSegment{
+						{Field: "arguments"},
+						{Field: "optionalNonNullBooleanArgField"},
+					},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
