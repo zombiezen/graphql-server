@@ -18,6 +18,7 @@ package graphql
 
 import (
 	"fmt"
+	"strconv"
 
 	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
@@ -218,7 +219,80 @@ func validateArguments(source string, defns map[string]inputValueDefinition, arg
 			})
 		}
 	}
+	// No sense in validating argument values if the arrangment is wrong.
+	if len(errs) > 0 {
+		return errs
+	}
+	for name, defn := range defns {
+		args := argumentsByName[name]
+		if len(args) == 0 {
+			continue
+		}
+		argErrs := validateValue(source, defn.typ(), args[0].Value)
+		errs = append(errs, argErrs...)
+	}
 	return errs
+}
+
+func validateValue(source string, typ *gqlType, val *gqlang.InputValue) []error {
+	if val.Null != nil {
+		if !typ.isNullable() {
+			return []error{&ResponseError{
+				Message: fmt.Sprintf("null not permitted for %v", typ),
+				Locations: []Location{
+					astPositionToLocation(val.Null.Start.ToPosition(source)),
+				},
+			}}
+		}
+		return nil
+	}
+	genericErr := &ResponseError{
+		Message: fmt.Sprintf("cannot coerce %v to %v", val, typ),
+		Locations: []Location{
+			astPositionToLocation(val.Start().ToPosition(source)),
+		},
+	}
+	switch nullableType := typ.toNullable(); {
+	case nullableType == intType:
+		if val.Scalar == nil || val.Scalar.Type != gqlang.IntScalar {
+			return []error{genericErr}
+		}
+		scalar := val.Scalar.Value()
+		if _, err := strconv.ParseInt(scalar, 10, 32); err != nil {
+			return []error{&ResponseError{
+				Message:   fmt.Sprintf("%q is not in the range of a 32-bit integer", scalar),
+				Locations: genericErr.Locations,
+			}}
+		}
+	case nullableType == floatType:
+		if val.Scalar == nil || (val.Scalar.Type != gqlang.FloatScalar && val.Scalar.Type != gqlang.IntScalar) {
+			return []error{genericErr}
+		}
+		scalar := val.Scalar.Value()
+		if _, err := strconv.ParseFloat(scalar, 64); err != nil {
+			return []error{&ResponseError{
+				Message:   fmt.Sprintf("%q is not representable as a float", scalar),
+				Locations: genericErr.Locations,
+			}}
+		}
+	case nullableType == stringType:
+		if val.Scalar == nil || val.Scalar.Type != gqlang.StringScalar {
+			return []error{genericErr}
+		}
+	case nullableType == booleanType:
+		if val.Scalar == nil || val.Scalar.Type != gqlang.BooleanScalar {
+			return []error{genericErr}
+		}
+	case nullableType == idType:
+		if val.Scalar == nil || (val.Scalar.Type != gqlang.StringScalar && val.Scalar.Type != gqlang.IntScalar) {
+			return []error{genericErr}
+		}
+	case nullableType.isScalar():
+		if val.Scalar == nil {
+			return []error{genericErr}
+		}
+	}
+	return nil
 }
 
 func posListToLocationList(source string, posList []gqlang.Pos) []Location {

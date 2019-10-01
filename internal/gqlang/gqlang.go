@@ -179,6 +179,38 @@ type InputValue struct {
 	VariableRef *Variable
 }
 
+// Start returns the byte offset of the beginning of the expression.
+func (ival *InputValue) Start() Pos {
+	switch {
+	case ival == nil:
+		return -1
+	case ival.Null != nil:
+		return ival.Null.Start
+	case ival.Scalar != nil:
+		return ival.Scalar.Start
+	case ival.VariableRef != nil:
+		return ival.VariableRef.Dollar
+	default:
+		panic("unknown input value")
+	}
+}
+
+// String formats the expression as GraphQL syntax.
+func (ival *InputValue) String() string {
+	switch {
+	case ival == nil:
+		return ""
+	case ival.Null != nil:
+		return ival.Null.String()
+	case ival.Scalar != nil:
+		return ival.Scalar.String()
+	case ival.VariableRef != nil:
+		return ival.VariableRef.String()
+	default:
+		panic("unknown input value")
+	}
+}
+
 // ScalarValue is a primitive literal like a string or integer.
 type ScalarValue struct {
 	Start Pos

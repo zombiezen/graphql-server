@@ -444,6 +444,46 @@ func TestValidateRequest(t *testing.T) {
 				},
 			},
 		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-7ee0e
+			name: "Values/Type/Valid",
+			request: `
+				query goodBooleanArg {
+					arguments {
+						booleanArgField(booleanArg: true)
+					}
+				}
+
+				query coercedIntIntoFloatArg {
+					arguments {
+						# Note: The input coercion rules for Float allow Int literals.
+						floatArgField(floatArg: 123)
+					}
+				}
+			`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-3a7c1
+			name: "Values/Type/StringToInt",
+			request: `
+				{
+					arguments {
+						intArgField(intArg: "123")
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 69},
+					},
+					Path: []PathSegment{
+						{Field: "arguments"},
+						{Field: "intArgField"},
+					},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
