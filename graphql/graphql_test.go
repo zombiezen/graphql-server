@@ -42,6 +42,7 @@ func TestExecute(t *testing.T) {
 			contextOnlyMethod(echo: String): String
 			argsOnlyMethod(echo: String): String
 			contextAndArgsMethod(echo: String): String
+			argWithDefault(echo: String = "xyzzy"): String
 
 			nilErrorMethod: String
 			errorMethod: String
@@ -391,6 +392,36 @@ func TestExecute(t *testing.T) {
 				{key: "myInt", value: valueExpectations{scalar: "42"}},
 			},
 		},
+		{
+			name: "Object/ArgumentWithDefault/Omitted",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			query: `{ argWithDefault }`,
+			want: []fieldExpectations{
+				{key: "argWithDefault", value: valueExpectations{scalar: "xyzzyxyzzy"}},
+			},
+		},
+		{
+			name: "Object/ArgumentWithDefault/Specified",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			query: `{ argWithDefault(echo: "foo") }`,
+			want: []fieldExpectations{
+				{key: "argWithDefault", value: valueExpectations{scalar: "foofoo"}},
+			},
+		},
+		{
+			name: "Object/ArgumentWithDefault/Null",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			query: `{ argWithDefault(echo: null) }`,
+			want: []fieldExpectations{
+				{key: "argWithDefault", value: valueExpectations{scalar: ""}},
+			},
+		},
 	}
 
 	ctx := context.Background()
@@ -492,6 +523,11 @@ func (q *testQueryStruct) ContextAndArgsMethod(ctx context.Context, args map[str
 		}
 	}
 	return args["echo"].Scalar() + "xyzzy"
+}
+
+func (q *testQueryStruct) ArgWithDefault(args map[string]Value) string {
+	echo := args["echo"].Scalar()
+	return echo + echo
 }
 
 func (q *testQueryStruct) NilErrorMethod() (string, error) {
