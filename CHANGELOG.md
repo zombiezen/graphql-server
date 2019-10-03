@@ -21,6 +21,7 @@ Known unimplemented features:
 
 -  Scalar types
 -  Field arguments
+-  Field methods can inspect their selection set
 -  Schema validation
 -  Validation
 -  Marshaling of Go types into GraphQL output types
