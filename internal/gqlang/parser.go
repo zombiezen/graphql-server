@@ -374,7 +374,7 @@ func (p *parser) value(isConst bool) (*InputValue, []error) {
 	default:
 		return nil, []error{&posError{
 			pos: tok.start,
-			err: xerrors.New("value: expected scalar, got %q"),
+			err: xerrors.Errorf("value: expected scalar, got %q", tok),
 		}}
 	}
 }
