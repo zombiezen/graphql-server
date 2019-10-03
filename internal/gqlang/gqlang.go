@@ -423,6 +423,34 @@ type TypeRef struct {
 	NonNull *NonNullType
 }
 
+// Start returns the byte offset of the start of the type reference.
+func (ref *TypeRef) Start() Pos {
+	switch {
+	case ref.Named != nil:
+		return ref.Named.Start
+	case ref.List != nil:
+		return ref.List.LBracket
+	case ref.NonNull != nil:
+		return ref.NonNull.Start()
+	default:
+		panic("unknown type reference")
+	}
+}
+
+// String formats the type in GraphQL syntax.
+func (ref *TypeRef) String() string {
+	switch {
+	case ref.Named != nil:
+		return ref.Named.String()
+	case ref.List != nil:
+		return ref.List.String()
+	case ref.NonNull != nil:
+		return ref.NonNull.String()
+	default:
+		panic("unknown type reference")
+	}
+}
+
 // ListType declares a homogenous sequence of another type.
 // https://graphql.github.io/graphql-spec/June2018/#ListType
 type ListType struct {
@@ -431,12 +459,41 @@ type ListType struct {
 	RBracket Pos
 }
 
+// String formats the type in GraphQL syntax.
+func (ltype *ListType) String() string {
+	return "[" + ltype.Type.String() + "]"
+}
+
 // NonNullType declares a named or list type that cannot be null.
 // https://graphql.github.io/graphql-spec/June2018/#Type
 type NonNullType struct {
 	Named *Name
 	List  *ListType
 	Pos   Pos
+}
+
+// Start returns the byte offset of the start of the type.
+func (nn *NonNullType) Start() Pos {
+	switch {
+	case nn.Named != nil:
+		return nn.Named.Start
+	case nn.List != nil:
+		return nn.List.LBracket
+	default:
+		panic("unknown non-null type")
+	}
+}
+
+// String formats the type in GraphQL syntax.
+func (nn *NonNullType) String() string {
+	switch {
+	case nn.Named != nil:
+		return nn.Named.String() + "!"
+	case nn.List != nil:
+		return nn.List.String() + "!"
+	default:
+		panic("unknown non-null type")
+	}
 }
 
 // A Description is a string that documents a type system definition.

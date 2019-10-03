@@ -48,10 +48,13 @@ func ParseSchema(source string) (*Schema, error) {
 	}
 	for _, defn := range doc.Definitions {
 		if defn.Operation != nil {
-			return nil, xerrors.Errorf("parse schema: %v: operations not allowed in schemas", defn.Operation.Start.ToPosition(source))
+			return nil, xerrors.Errorf("parse schema: %v: operations not allowed", defn.Operation.Start.ToPosition(source))
 		}
 	}
-	typeMap := buildTypeMap(doc)
+	typeMap, err := buildTypeMap(source, doc)
+	if err != nil {
+		return nil, xerrors.Errorf("parse schema: %v", err)
+	}
 	schema := &Schema{
 		query:    typeMap["Query"],
 		mutation: typeMap["Mutation"],
@@ -60,10 +63,18 @@ func ParseSchema(source string) (*Schema, error) {
 	if schema.query == nil {
 		return nil, xerrors.New("parse schema: could not find Query type")
 	}
+	if !schema.query.isObject() {
+		return nil, xerrors.Errorf("parse schema: query type %v must be an object", schema.query)
+	}
+	if schema.mutation != nil && !schema.mutation.isObject() {
+		return nil, xerrors.Errorf("parse schema: mutation type %v must be an object", schema.mutation)
+	}
 	return schema, nil
 }
 
-func buildTypeMap(doc *gqlang.Document) map[string]*gqlType {
+const reservedPrefix = "__"
+
+func buildTypeMap(source string, doc *gqlang.Document) (map[string]*gqlType, error) {
 	typeMap := make(map[string]*gqlType)
 	builtins := []*gqlType{
 		booleanType,
@@ -78,14 +89,23 @@ func buildTypeMap(doc *gqlang.Document) map[string]*gqlType {
 	// First pass: fill out lookup table.
 	for _, defn := range doc.Definitions {
 		t := defn.Type
-		switch {
-		case t == nil:
+		if t == nil {
 			continue
+		}
+		name := t.Name()
+		if strings.HasPrefix(name.Value, reservedPrefix) {
+			return nil, xerrors.Errorf("%v: use of reserved name %q", name.Start.ToPosition(source), name.Value)
+		}
+		if typeMap[name.Value] != nil {
+			return nil, xerrors.Errorf("%v: multiple types with name %q", name.Start.ToPosition(source), name.Value)
+		}
+
+		switch {
 		case t.Scalar != nil:
-			typeMap[t.Scalar.Name.Value] = newScalarType(t.Scalar.Name.Value)
+			typeMap[name.Value] = newScalarType(name.Value)
 		case t.Object != nil:
-			typeMap[t.Object.Name.Value] = newObjectType(&objectType{
-				name:   t.Object.Name.Value,
+			typeMap[name.Value] = newObjectType(&objectType{
+				name:   name.Value,
 				fields: make(map[string]objectTypeField),
 			})
 		}
@@ -95,29 +115,63 @@ func buildTypeMap(doc *gqlang.Document) map[string]*gqlType {
 		if defn.Type == nil || defn.Type.Object == nil {
 			continue
 		}
-		obj := defn.Type.Object
-		info := typeMap[obj.Name.Value].obj
-		for _, fieldDefn := range obj.Fields.Defs {
-			typ := resolveTypeRef(typeMap, fieldDefn.Type)
-			f := objectTypeField{
-				typ: typ,
-			}
-			if fieldDefn.Args != nil {
-				f.args = make(map[string]inputValueDefinition)
-				for _, arg := range fieldDefn.Args.Args {
-					name := arg.Name.Value
-					typ := resolveTypeRef(typeMap, arg.Type)
-					defaultValue := Value{typ: typ}
-					if arg.Default != nil {
-						defaultValue = coerceInputValue(typ, arg.Default.Value)
-					}
-					f.args[name] = inputValueDefinition{defaultValue: defaultValue}
-				}
-			}
-			info.fields[fieldDefn.Name.Value] = f
+		if err := fillObjectTypeFields(source, typeMap, defn.Type.Object); err != nil {
+			return nil, err
 		}
 	}
-	return typeMap
+	return typeMap, nil
+}
+
+func fillObjectTypeFields(source string, typeMap map[string]*gqlType, obj *gqlang.ObjectTypeDefinition) error {
+	info := typeMap[obj.Name.Value].obj
+	for _, fieldDefn := range obj.Fields.Defs {
+		fieldName := fieldDefn.Name.Value
+		if strings.HasPrefix(fieldName, reservedPrefix) {
+			return xerrors.Errorf("%v: use of reserved name %q", fieldDefn.Name.Start.ToPosition(source), fieldName)
+		}
+		if _, found := info.fields[fieldName]; found {
+			return xerrors.Errorf("%v: multiple fields named %q in %s", fieldDefn.Name.Start.ToPosition(source), fieldName, obj.Name)
+		}
+		typ := resolveTypeRef(typeMap, fieldDefn.Type)
+		if typ == nil {
+			return xerrors.Errorf("%v: undefined type %v", fieldDefn.Type.Start().ToPosition(source), fieldDefn.Type)
+		}
+		if !typ.isOutputType() {
+			return xerrors.Errorf("%v: %v is not an output type", fieldDefn.Type.Start().ToPosition(source), fieldDefn.Type)
+		}
+		f := objectTypeField{
+			typ: typ,
+		}
+		if fieldDefn.Args != nil {
+			f.args = make(map[string]inputValueDefinition)
+			for _, arg := range fieldDefn.Args.Args {
+				argName := arg.Name.Value
+				if strings.HasPrefix(argName, reservedPrefix) {
+					return xerrors.Errorf("%v: use of reserved name %q", arg.Name.Start.ToPosition(source), argName)
+				}
+				if _, found := f.args[argName]; found {
+					return xerrors.Errorf("%v: multiple arguments named %q for field %s.%s", arg.Name.Start.ToPosition(source), argName, obj.Name, fieldName)
+				}
+				typ := resolveTypeRef(typeMap, arg.Type)
+				if typ == nil {
+					return xerrors.Errorf("%v: undefined type %v", arg.Type.Start().ToPosition(source), arg.Type)
+				}
+				if !typ.isInputType() {
+					return xerrors.Errorf("%v: %v is not an input type", arg.Type.Start().ToPosition(source), arg.Type)
+				}
+				defaultValue := Value{typ: typ}
+				if arg.Default != nil {
+					if errs := validateValue(source, typ, arg.Default.Value); len(errs) > 0 {
+						return errs[0]
+					}
+					defaultValue = coerceInputValue(typ, arg.Default.Value)
+				}
+				f.args[argName] = inputValueDefinition{defaultValue: defaultValue}
+			}
+		}
+		info.fields[fieldDefn.Name.Value] = f
+	}
+	return nil
 }
 
 func resolveTypeRef(typeMap map[string]*gqlType, ref *gqlang.TypeRef) *gqlType {
@@ -125,11 +179,23 @@ func resolveTypeRef(typeMap map[string]*gqlType, ref *gqlang.TypeRef) *gqlType {
 	case ref.Named != nil:
 		return typeMap[ref.Named.Value]
 	case ref.List != nil:
-		return listOf(resolveTypeRef(typeMap, ref.List.Type))
+		elem := resolveTypeRef(typeMap, ref.List.Type)
+		if elem == nil {
+			return nil
+		}
+		return listOf(elem)
 	case ref.NonNull != nil && ref.NonNull.Named != nil:
-		return typeMap[ref.NonNull.Named.Value].toNonNullable()
+		base := typeMap[ref.NonNull.Named.Value]
+		if base == nil {
+			return nil
+		}
+		return base.toNonNullable()
 	case ref.NonNull != nil && ref.NonNull.List != nil:
-		return listOf(resolveTypeRef(typeMap, ref.NonNull.List.Type)).toNonNullable()
+		elem := resolveTypeRef(typeMap, ref.NonNull.List.Type)
+		if elem == nil {
+			return nil
+		}
+		return listOf(elem).toNonNullable()
 	default:
 		panic("unrecognized type reference form")
 	}

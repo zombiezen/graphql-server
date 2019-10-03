@@ -141,6 +141,26 @@ func (typ *gqlType) isObject() bool {
 	return typ.obj != nil
 }
 
+// isInputType reports whether typ can be used as an input.
+// See https://graphql.github.io/graphql-spec/June2018/#IsInputType()
+func (typ *gqlType) isInputType() bool {
+	for typ.isList() {
+		typ = typ.list
+	}
+	// TODO(soon): Enum or input object.
+	return typ.isScalar()
+}
+
+// isOutputType reports whether typ can be used as an output.
+// See https://graphql.github.io/graphql-spec/June2018/#IsOutputType()
+func (typ *gqlType) isOutputType() bool {
+	for typ.isList() {
+		typ = typ.list
+	}
+	// TODO(soon): Interface, union, or enum.
+	return typ.isScalar() || typ.isObject()
+}
+
 func (typ *gqlType) selectionSetType() *gqlType {
 	for typ.isList() {
 		typ = typ.list
