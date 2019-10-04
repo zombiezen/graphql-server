@@ -312,7 +312,7 @@ func (p *parser) value(isConst bool) (*InputValue, []error) {
 	if len(p.tokens) == 0 {
 		return nil, []error{&posError{
 			pos: p.eofPos,
-			err: xerrors.New("value: expected scalar, got EOF"),
+			err: xerrors.New("value: got EOF"),
 		}}
 	}
 	switch tok := p.tokens[0]; tok.kind {
@@ -371,10 +371,13 @@ func (p *parser) value(isConst bool) (*InputValue, []error) {
 			val.Scalar.Type = EnumScalar
 		}
 		return val, nil
+	case lbrace:
+		ioval, errs := p.objectValue(isConst)
+		return &InputValue{InputObject: ioval}, errs
 	default:
 		return nil, []error{&posError{
 			pos: tok.start,
-			err: xerrors.Errorf("value: expected scalar, got %q", tok),
+			err: xerrors.Errorf("value: got %q", tok),
 		}}
 	}
 }
@@ -423,6 +426,51 @@ func (p *parser) variable() (*Variable, error) {
 		Dollar: tok.start,
 		Name:   varName,
 	}, nil
+}
+
+func (p *parser) objectValue(isConst bool) (*InputObjectValue, []error) {
+	ioval := new(InputObjectValue)
+	var errs []error
+	ioval.LBrace, ioval.RBrace, errs = p.group(lbrace, rbrace, "object field", func() []error {
+		if len(p.tokens) == 0 {
+			return []error{&posError{
+				pos: p.eofPos,
+				err: xerrors.New("expected name, got EOF"),
+			}}
+		}
+		field := new(InputObjectField)
+		var err error
+		field.Name, err = p.name()
+		if err != nil {
+			return []error{err}
+		}
+		if len(p.tokens) == 0 {
+			return []error{&posError{
+				pos: p.eofPos,
+				err: xerrors.New("expected ':', got EOF"),
+			}}
+		}
+		tok := p.tokens[0]
+		if tok.kind != colon {
+			return []error{&posError{
+				pos: p.eofPos,
+				err: xerrors.Errorf("expected ':', found %q", tok),
+			}}
+		}
+		field.Colon = tok.start
+		p.next()
+		var fieldErrs []error
+		field.Value, fieldErrs = p.value(isConst)
+		ioval.Fields = append(ioval.Fields, field)
+		return fieldErrs
+	})
+	for i, err := range errs {
+		errs[i] = xerrors.Errorf("object value: %w", err)
+	}
+	if ioval.LBrace == -1 {
+		return nil, errs
+	}
+	return ioval, errs
 }
 
 func (p *parser) variableDefinitions() (*VariableDefinitions, []error) {

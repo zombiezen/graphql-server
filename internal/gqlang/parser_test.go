@@ -449,6 +449,65 @@ input ItemInput {
 				},
 			},
 		},
+		{
+			name: "InputObjectLiteral",
+			input: `{
+	findDog(complex: { name: "Fido" })
+}`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Operation: &Operation{
+						Start: 0,
+						Type:  Query,
+						SelectionSet: &SelectionSet{
+							LBrace: 0,
+							Sel: []*Selection{
+								{Field: &Field{
+									Name: &Name{
+										Start: 3,
+										Value: "findDog",
+									},
+									Arguments: &Arguments{
+										LParen: 10,
+										Args: []*Argument{
+											{
+												Name: &Name{
+													Start: 11,
+													Value: "complex",
+												},
+												Colon: 18,
+												Value: &InputValue{
+													InputObject: &InputObjectValue{
+														LBrace: 20,
+														Fields: []*InputObjectField{
+															{
+																Name: &Name{
+																	Start: 22,
+																	Value: "name",
+																},
+																Colon: 26,
+																Value: &InputValue{Scalar: &ScalarValue{
+																	Start: 28,
+																	Type:  StringScalar,
+																	Raw:   `"Fido"`,
+																}},
+															},
+														},
+														RBrace: 35,
+													},
+												},
+											},
+										},
+										RParen: 36,
+									},
+								}},
+							},
+							RBrace: 38,
+						},
+					}},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

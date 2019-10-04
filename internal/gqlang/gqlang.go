@@ -177,6 +177,7 @@ type InputValue struct {
 	Null        *Name
 	Scalar      *ScalarValue
 	VariableRef *Variable
+	InputObject *InputObjectValue
 }
 
 // Start returns the byte offset of the beginning of the expression.
@@ -190,6 +191,8 @@ func (ival *InputValue) Start() Pos {
 		return ival.Scalar.Start
 	case ival.VariableRef != nil:
 		return ival.VariableRef.Dollar
+	case ival.InputObject != nil:
+		return ival.InputObject.LBrace
 	default:
 		panic("unknown input value")
 	}
@@ -206,6 +209,8 @@ func (ival *InputValue) String() string {
 		return ival.Scalar.String()
 	case ival.VariableRef != nil:
 		return ival.VariableRef.String()
+	case ival.InputObject != nil:
+		return ival.InputObject.String()
 	default:
 		panic("unknown input value")
 	}
@@ -363,19 +368,49 @@ type Variable struct {
 	Name   *Name
 }
 
-// DefaultValue specifies the default value of an input.
-// https://graphql.github.io/graphql-spec/June2018/#DefaultValue
-type DefaultValue struct {
-	Eq    Pos
-	Value *InputValue
-}
-
 // String returns the variable in the form "$foo".
 func (v *Variable) String() string {
 	if v == nil {
 		return ""
 	}
 	return "$" + v.Name.String()
+}
+
+// An InputObjectValue is an unordered list of keyed input values.
+type InputObjectValue struct {
+	LBrace Pos
+	Fields []*InputObjectField
+	RBrace Pos
+}
+
+// String formats the value in GraphQL syntax.
+func (ioval *InputObjectValue) String() string {
+	buf := new(strings.Builder)
+	buf.WriteByte('{')
+	for i, field := range ioval.Fields {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteString(field.Name.String())
+		buf.WriteString(": ")
+		buf.WriteString(field.Value.String())
+	}
+	buf.WriteByte('}')
+	return buf.String()
+}
+
+// An InputObjectField is a keyed input value.
+type InputObjectField struct {
+	Name  *Name
+	Colon Pos
+	Value *InputValue
+}
+
+// DefaultValue specifies the default value of an input.
+// https://graphql.github.io/graphql-spec/June2018/#DefaultValue
+type DefaultValue struct {
+	Eq    Pos
+	Value *InputValue
 }
 
 // VariableDefinitions is the set of variables an operation defines.
