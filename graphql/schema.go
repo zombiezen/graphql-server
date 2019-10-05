@@ -108,15 +108,27 @@ func buildTypeMap(source string, doc *gqlang.Document) (map[string]*gqlType, err
 				name:   name.Value,
 				fields: make(map[string]objectTypeField),
 			})
+		case t.InputObject != nil:
+			typeMap[name.Value] = newInputObjectType(&inputObjectType{
+				name:   name.Value,
+				fields: make(map[string]inputValueDefinition),
+			})
 		}
 	}
 	// Second pass: fill in object definitions.
 	for _, defn := range doc.Definitions {
-		if defn.Type == nil || defn.Type.Object == nil {
+		if defn.Type == nil {
 			continue
 		}
-		if err := fillObjectTypeFields(source, typeMap, defn.Type.Object); err != nil {
-			return nil, err
+		switch {
+		case defn.Type.Object != nil:
+			if err := fillObjectTypeFields(source, typeMap, defn.Type.Object); err != nil {
+				return nil, err
+			}
+		case defn.Type.InputObject != nil:
+			if err := fillInputObjectTypeFields(source, typeMap, defn.Type.InputObject); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return typeMap, nil
@@ -168,6 +180,34 @@ func fillObjectTypeFields(source string, typeMap map[string]*gqlType, obj *gqlan
 				}
 				f.args[argName] = inputValueDefinition{defaultValue: defaultValue}
 			}
+		}
+		info.fields[fieldDefn.Name.Value] = f
+	}
+	return nil
+}
+
+func fillInputObjectTypeFields(source string, typeMap map[string]*gqlType, obj *gqlang.InputObjectTypeDefinition) error {
+	info := typeMap[obj.Name.Value].input
+	for _, fieldDefn := range obj.Fields.Defs {
+		fieldName := fieldDefn.Name.Value
+		if strings.HasPrefix(fieldName, reservedPrefix) {
+			return xerrors.Errorf("%v: use of reserved name %q", fieldDefn.Name.Start.ToPosition(source), fieldName)
+		}
+		if _, found := info.fields[fieldName]; found {
+			return xerrors.Errorf("%v: multiple fields named %q in %s", fieldDefn.Name.Start.ToPosition(source), fieldName, obj.Name)
+		}
+		typ := resolveTypeRef(typeMap, fieldDefn.Type)
+		if typ == nil {
+			return xerrors.Errorf("%v: undefined type %v", fieldDefn.Type.Start().ToPosition(source), fieldDefn.Type)
+		}
+		if !typ.isInputType() {
+			return xerrors.Errorf("%v: %v is not an input type", fieldDefn.Type.Start().ToPosition(source), fieldDefn.Type)
+		}
+		var f inputValueDefinition
+		if fieldDefn.Default != nil {
+			f.defaultValue = coerceInputValue(typ, fieldDefn.Default.Value)
+		} else {
+			f.defaultValue.typ = typ
 		}
 		info.fields[fieldDefn.Name.Value] = f
 	}

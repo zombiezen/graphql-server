@@ -124,6 +124,14 @@ func coerceInputValue(typ *gqlType, inputValue *gqlang.InputValue) Value {
 			typ: typ,
 			val: inputValue.Scalar.Value(),
 		}
+	case inputValue.InputObject != nil:
+		val := make(map[string]Value)
+		for _, field := range inputValue.InputObject.Fields {
+			fieldName := field.Name.Value
+			fieldType := typ.input.fields[fieldName].typ()
+			val[fieldName] = coerceInputValue(fieldType, field.Value)
+		}
+		return Value{typ: typ, val: val}
 	default:
 		panic("unhandled input type")
 	}
@@ -148,7 +156,7 @@ func readField(ctx context.Context, goValue reflect.Value, f *SelectedField, typ
 	method := findFieldMethod(goValue, f.name)
 	if !method.IsValid() {
 		return Value{typ: typ}, []error{&ResponseError{
-			Message:   fmt.Sprintf("no such method or field on %v", goValue.Type()),
+			Message:   fmt.Sprintf("no such method or field %q on %v", f.name, goValue.Type()),
 			Locations: []Location{f.loc},
 			Path:      []PathSegment{{Field: f.key}},
 		}}
@@ -378,6 +386,25 @@ func (v Value) Len() int {
 func (v Value) Field(i int) Field {
 	fields := v.val.([]Field)
 	return fields[i]
+}
+
+// ValueFor returns the value of the field with the given key or the zero Value
+// if v does not have the given key. ValueFor panics if v is not an object or
+// input object.
+func (v Value) ValueFor(key string) Value {
+	switch val := v.val.(type) {
+	case []Field:
+		for _, f := range val {
+			if f.Key == key {
+				return f.Value
+			}
+		}
+		return Value{}
+	case map[string]Value:
+		return val[key]
+	default:
+		panic(fmt.Sprintf("invalid value for ValueFor(): %T", v.val))
+	}
 }
 
 // MarshalJSON converts the value to JSON.

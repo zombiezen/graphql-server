@@ -46,8 +46,13 @@ func TestExecute(t *testing.T) {
 
 			nilErrorMethod: String
 			errorMethod: String
+
+			inputObjectArgument(complex: Complex): String
 		}
 
+		input Complex {
+			foo: String
+		}
 	`
 	tests := []struct {
 		name        string
@@ -422,6 +427,26 @@ func TestExecute(t *testing.T) {
 				{key: "argWithDefault", value: valueExpectations{scalar: ""}},
 			},
 		},
+		{
+			name: "Object/InputObjectArgument",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			query: `{ inputObjectArgument(complex: { foo: "xyzzy" }) }`,
+			want: []fieldExpectations{
+				{key: "inputObjectArgument", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		},
+		{
+			name: "Object/InputObjectArgument/Null",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			query: `{ inputObjectArgument(complex: null) }`,
+			want: []fieldExpectations{
+				{key: "inputObjectArgument", value: valueExpectations{scalar: "<null input>"}},
+			},
+		},
 	}
 
 	ctx := context.Background()
@@ -536,6 +561,14 @@ func (q *testQueryStruct) NilErrorMethod() (string, error) {
 
 func (q *testQueryStruct) ErrorMethod() (string, error) {
 	return "xyzzy", xerrors.New("I have failed")
+}
+
+func (q *testQueryStruct) InputObjectArgument(args map[string]Value) string {
+	complex := args["complex"]
+	if complex.IsNull() {
+		return "<null input>"
+	}
+	return complex.ValueFor("foo").Scalar()
 }
 
 func newString(s string) *string { return &s }

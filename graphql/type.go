@@ -26,6 +26,7 @@ type gqlType struct {
 	scalar  string
 	list    *gqlType
 	obj     *objectType
+	input   *inputObjectType
 	nonNull bool
 
 	// nullVariant is the same type with the nonNull flag flipped.
@@ -44,6 +45,11 @@ type objectType struct {
 type objectTypeField struct {
 	typ  *gqlType
 	args map[string]inputValueDefinition
+}
+
+type inputObjectType struct {
+	name   string
+	fields map[string]inputValueDefinition
 }
 
 type inputValueDefinition struct {
@@ -79,6 +85,14 @@ func newObjectType(info *objectType) *gqlType {
 	return nullable
 }
 
+func newInputObjectType(info *inputObjectType) *gqlType {
+	nullable := &gqlType{input: info}
+	nonNullable := &gqlType{input: info, nonNull: true}
+	nullable.nullVariant = nonNullable
+	nonNullable.nullVariant = nullable
+	return nullable
+}
+
 func listOf(elem *gqlType) *gqlType {
 	elem.listInit.Do(func() {
 		nullable := &gqlType{list: elem}
@@ -105,6 +119,8 @@ func (typ *gqlType) String() string {
 		return "[" + typ.list.String() + "]" + suffix
 	case typ.isObject():
 		return typ.obj.name + suffix
+	case typ.isInputObject():
+		return typ.input.name + suffix
 	default:
 		return "<invalid type>"
 	}
@@ -141,14 +157,18 @@ func (typ *gqlType) isObject() bool {
 	return typ.obj != nil
 }
 
+func (typ *gqlType) isInputObject() bool {
+	return typ.input != nil
+}
+
 // isInputType reports whether typ can be used as an input.
 // See https://graphql.github.io/graphql-spec/June2018/#IsInputType()
 func (typ *gqlType) isInputType() bool {
 	for typ.isList() {
 		typ = typ.list
 	}
-	// TODO(soon): Enum or input object.
-	return typ.isScalar()
+	// TODO(soon): Enum.
+	return typ.isScalar() || typ.isInputObject()
 }
 
 // isOutputType reports whether typ can be used as an output.

@@ -20,6 +20,7 @@ Known unimplemented features:
 ### Added
 
 -  Scalar types
+-  Input object types
 -  Field arguments
 -  Field methods can inspect their selection set
 -  Schema validation

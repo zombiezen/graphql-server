@@ -25,13 +25,16 @@ import (
 )
 
 func TestValidateRequest(t *testing.T) {
-	// Schema from https://graphql.github.io/graphql-spec/June2018/#example-26a9d
-	// and https://graphql.github.io/graphql-spec/June2018/#example-1891c
+	// Schema from https://graphql.github.io/graphql-spec/June2018/#example-26a9d,
+	// https://graphql.github.io/graphql-spec/June2018/#example-1891c, and
+	// https://graphql.github.io/graphql-spec/June2018/#example-f3185.
 	// TODO(soon): Fill out all missing parts.
 	const schemaSource = `
 		type Query {
 			dog: Dog
 			arguments: Arguments
+			findDog(complex: ComplexInput): Dog
+			booleanList(booleanListArg: [Boolean!]): Boolean
 		}
 
 		scalar DogCommand
@@ -61,7 +64,9 @@ func TestValidateRequest(t *testing.T) {
 			nonNullBooleanArgField(nonNullBooleanArg: Boolean!): Boolean!
 			booleanListArgField(booleanListArg: [Boolean]!): [Boolean]
 			optionalNonNullBooleanArgField(optionalBooleanArg: Boolean! = false): Boolean!
-		}`
+		}
+
+		input ComplexInput { name: String!, owner: String }`
 	schema, err := ParseSchema(schemaSource)
 	if err != nil {
 		t.Fatal(err)
@@ -480,6 +485,116 @@ func TestValidateRequest(t *testing.T) {
 					Path: []PathSegment{
 						{Field: "arguments"},
 						{Field: "intArgField"},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-a940b
+			name: "Values/Input/FieldName/Valid",
+			request: `
+				{
+					findDog(complex: { name: "Fido" }) {
+						name
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-1a5f6
+			name: "Values/Input/FieldTypeCheck",
+			request: `
+				{
+					findDog(complex: { name: 42 }) {
+						name
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 66},
+					},
+					Path: []PathSegment{
+						{Field: "findDog"},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-1a5f6
+			name: "Values/Input/FieldName/Invalid",
+			request: `
+				{
+					findDog(complex: { favoriteCookieFlavor: "Bacon", name: "Fido" }) {
+						name
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 60},
+					},
+					Path: []PathSegment{
+						{Field: "findDog"},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-5d541
+			name: "Values/Input/Uniqueness",
+			request: `
+				{
+					findDog(complex: { name: "Fido", name: "Fido" }) {
+						name
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 60},
+						{3, 74},
+					},
+					Path: []PathSegment{
+						{Field: "findDog"},
+					},
+				},
+			},
+		},
+		{
+			name: "Values/Input/Required/Missing",
+			request: `
+				{
+					findDog(complex: { owner: "Fred" }) {
+						name
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 74},
+					},
+					Path: []PathSegment{
+						{Field: "findDog"},
+					},
+				},
+			},
+		},
+		{
+			name: "Values/Input/Required/Null",
+			request: `
+				{
+					findDog(complex: { name: null }) {
+						name
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 66},
+					},
+					Path: []PathSegment{
+						{Field: "findDog"},
 					},
 				},
 			},

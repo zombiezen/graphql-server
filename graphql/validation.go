@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"golang.org/x/xerrors"
 	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
 
@@ -237,7 +238,9 @@ func validateArguments(source string, defns map[string]inputValueDefinition, arg
 			continue
 		}
 		argErrs := validateValue(source, defn.typ(), args[0].Value)
-		errs = append(errs, argErrs...)
+		for _, err := range argErrs {
+			errs = append(errs, xerrors.Errorf("argument %s: %w", name, err))
+		}
 	}
 	return errs
 }
@@ -299,6 +302,69 @@ func validateValue(source string, typ *gqlType, val *gqlang.InputValue) []error 
 		if val.Scalar == nil {
 			return []error{genericErr}
 		}
+	case nullableType.isInputObject():
+		if val.InputObject == nil {
+			return []error{genericErr}
+		}
+		fieldsByName := make(map[string][]*gqlang.InputObjectField)
+		var errs []error
+		for _, field := range val.InputObject.Fields {
+			name := field.Name.Value
+			if _, exists := typ.input.fields[name]; !exists {
+				// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Field-Names
+				errs = append(errs, &ResponseError{
+					Message: fmt.Sprintf("unknown input field %s for %v", name, typ),
+					Locations: []Location{
+						astPositionToLocation(field.Name.Start.ToPosition(source)),
+					},
+				})
+				continue
+			}
+			fieldsByName[name] = append(fieldsByName[name], field)
+		}
+		for _, field := range val.InputObject.Fields {
+			name := field.Name.Value
+			fieldList := fieldsByName[name]
+			if len(fieldList) > 1 && field == fieldList[0] {
+				// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Field-Uniqueness
+				e := &ResponseError{
+					Message: fmt.Sprintf("multiple input fields for %v.%s", nullableType, name),
+				}
+				for _, g := range fieldList {
+					e.Locations = append(e.Locations, astPositionToLocation(g.Name.Start.ToPosition(source)))
+				}
+				errs = append(errs, e)
+			}
+		}
+		// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Required-Fields
+		for name, defn := range typ.input.fields {
+			if len(fieldsByName[name]) == 0 {
+				if !defn.typ().isNullable() && defn.defaultValue.IsNull() {
+					errs = append(errs, &ResponseError{
+						Message: fmt.Sprintf("missing required input field for %v.%s", nullableType, name),
+						Locations: []Location{
+							astPositionToLocation(val.InputObject.RBrace.ToPosition(source)),
+						},
+					})
+				}
+				continue
+			}
+			field := fieldsByName[name][0]
+			if !defn.typ().isNullable() && field.Value.Null != nil {
+				errs = append(errs, &ResponseError{
+					Message: fmt.Sprintf("required input field %v.%s is null", nullableType, name),
+					Locations: []Location{
+						astPositionToLocation(field.Value.Null.Start.ToPosition(source)),
+					},
+				})
+				continue
+			}
+			fieldErrs := validateValue(source, defn.typ(), field.Value)
+			for _, err := range fieldErrs {
+				errs = append(errs, xerrors.Errorf("input field %s: %w", name, err))
+			}
+		}
+		return errs
 	}
 	return nil
 }

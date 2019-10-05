@@ -131,6 +131,78 @@ func TestParseSchema(t *testing.T) {
 			source:  "type Query { foo(bar: Boolean! = null): String }",
 			wantErr: true,
 		},
+		{
+			name: "InputObject",
+			source: `
+				type Query {
+					magnitude(vec: Point2D): Float
+				}
+
+				input Point2D {
+					x: Float
+					y: Float
+				}
+			`,
+			wantErr: false,
+		},
+		{
+			name: "InputObject/ReservedFieldName",
+			source: `
+				type Query {
+					magnitude(vec: Point2D): Float
+				}
+
+				input Point2D {
+					__x: Float
+				}
+			`,
+			wantErr: true,
+		},
+		{
+			name: "InputObject/DuplicateFieldNames",
+			source: `
+				type Query {
+					magnitude(vec: Point2D): Float
+				}
+
+				input Point2D {
+					x: Float
+					x: Float
+				}
+			`,
+			wantErr: true,
+		},
+		{
+			name: "InputObject/CantUseAsFieldType",
+			source: `
+				type Query {
+					thePoint: Point2D
+				}
+
+				input Point2D {
+					x: Float
+					y: Float
+				}
+			`,
+			wantErr: true,
+		},
+		{
+			name: "InputObject/CantUseOutputTypeInInputFields",
+			source: `
+				type Query {
+					foo: Foo
+				}
+
+				type Foo {
+					s: String
+				}
+
+				input Bar {
+					x: Foo
+				}
+			`,
+			wantErr: true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
