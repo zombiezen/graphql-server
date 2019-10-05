@@ -57,7 +57,7 @@ func TestExecute(t *testing.T) {
 	tests := []struct {
 		name        string
 		queryObject func(e errorfer) interface{}
-		query       string
+		request     Request
 		want        []fieldExpectations
 		wantErrors  []*ResponseError
 	}{
@@ -66,7 +66,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyString: newString("")}
 			},
-			query: `{ myString }`,
+			request: Request{Query: `{ myString }`},
 			want: []fieldExpectations{
 				{key: "myString", value: valueExpectations{scalar: ""}},
 			},
@@ -76,7 +76,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyString: newString("foo")}
 			},
-			query: `{ myString }`,
+			request: Request{Query: `{ myString }`},
 			want: []fieldExpectations{
 				{key: "myString", value: valueExpectations{scalar: "foo"}},
 			},
@@ -86,7 +86,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyString: nil}
 			},
-			query: `{ myString }`,
+			request: Request{Query: `{ myString }`},
 			want: []fieldExpectations{
 				{key: "myString", value: valueExpectations{null: true}},
 			},
@@ -96,7 +96,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyBoolean: newBool(true)}
 			},
-			query: `{ myBoolean }`,
+			request: Request{Query: `{ myBoolean }`},
 			want: []fieldExpectations{
 				{key: "myBoolean", value: valueExpectations{scalar: "true"}},
 			},
@@ -106,7 +106,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyBoolean: newBool(false)}
 			},
-			query: `{ myBoolean }`,
+			request: Request{Query: `{ myBoolean }`},
 			want: []fieldExpectations{
 				{key: "myBoolean", value: valueExpectations{scalar: "false"}},
 			},
@@ -116,7 +116,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyBoolean: nil}
 			},
-			query: `{ myBoolean }`,
+			request: Request{Query: `{ myBoolean }`},
 			want: []fieldExpectations{
 				{key: "myBoolean", value: valueExpectations{null: true}},
 			},
@@ -126,7 +126,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt32: newInt32(0)}
 			},
-			query: `{ myInt32 }`,
+			request: Request{Query: `{ myInt32 }`},
 			want: []fieldExpectations{
 				{key: "myInt32", value: valueExpectations{scalar: "0"}},
 			},
@@ -136,7 +136,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt32: newInt32(123)}
 			},
-			query: `{ myInt32 }`,
+			request: Request{Query: `{ myInt32 }`},
 			want: []fieldExpectations{
 				{key: "myInt32", value: valueExpectations{scalar: "123"}},
 			},
@@ -146,7 +146,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt32: newInt32(-123)}
 			},
-			query: `{ myInt32 }`,
+			request: Request{Query: `{ myInt32 }`},
 			want: []fieldExpectations{
 				{key: "myInt32", value: valueExpectations{scalar: "-123"}},
 			},
@@ -156,7 +156,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt32: nil}
 			},
-			query: `{ myInt32 }`,
+			request: Request{Query: `{ myInt32 }`},
 			want: []fieldExpectations{
 				{key: "myInt32", value: valueExpectations{null: true}},
 			},
@@ -166,7 +166,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt: newInt(0)}
 			},
-			query: `{ myInt }`,
+			request: Request{Query: `{ myInt }`},
 			want: []fieldExpectations{
 				{key: "myInt", value: valueExpectations{scalar: "0"}},
 			},
@@ -176,7 +176,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt: newInt(123)}
 			},
-			query: `{ myInt }`,
+			request: Request{Query: `{ myInt }`},
 			want: []fieldExpectations{
 				{key: "myInt", value: valueExpectations{scalar: "123"}},
 			},
@@ -186,7 +186,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt: newInt(-123)}
 			},
-			query: `{ myInt }`,
+			request: Request{Query: `{ myInt }`},
 			want: []fieldExpectations{
 				{key: "myInt", value: valueExpectations{scalar: "-123"}},
 			},
@@ -196,7 +196,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt: nil}
 			},
-			query: `{ myInt }`,
+			request: Request{Query: `{ myInt }`},
 			want: []fieldExpectations{
 				{key: "myInt", value: valueExpectations{null: true}},
 			},
@@ -209,10 +209,10 @@ func TestExecute(t *testing.T) {
 					MyString: newString("hello"),
 				}
 			},
-			query: `{
+			request: Request{Query: `{
 				myInt
 				myString
-			}`,
+			}`},
 			want: []fieldExpectations{
 				{key: "myInt", value: valueExpectations{scalar: "42"}},
 				{key: "myString", value: valueExpectations{scalar: "hello"}},
@@ -223,7 +223,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ niladicNoArgsMethod }`,
+			request: Request{Query: `{ niladicNoArgsMethod }`},
 			want: []fieldExpectations{
 				{key: "niladicNoArgsMethod", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -233,7 +233,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ niladicContextOnlyMethod }`,
+			request: Request{Query: `{ niladicContextOnlyMethod }`},
 			want: []fieldExpectations{
 				{key: "niladicContextOnlyMethod", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -243,7 +243,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ niladicArgsOnlyMethod }`,
+			request: Request{Query: `{ niladicArgsOnlyMethod }`},
 			want: []fieldExpectations{
 				{key: "niladicArgsOnlyMethod", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -253,7 +253,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ niladicContextAndArgsMethod }`,
+			request: Request{Query: `{ niladicContextAndArgsMethod }`},
 			want: []fieldExpectations{
 				{key: "niladicContextAndArgsMethod", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -263,7 +263,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ noArgsMethod }`,
+			request: Request{Query: `{ noArgsMethod }`},
 			want: []fieldExpectations{
 				{key: "noArgsMethod", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -273,7 +273,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ contextOnlyMethod }`,
+			request: Request{Query: `{ contextOnlyMethod }`},
 			want: []fieldExpectations{
 				{key: "contextOnlyMethod", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -283,7 +283,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ argsOnlyMethod }`,
+			request: Request{Query: `{ argsOnlyMethod }`},
 			want: []fieldExpectations{
 				{key: "argsOnlyMethod", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -293,7 +293,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ argsOnlyMethod(echo: "foo") }`,
+			request: Request{Query: `{ argsOnlyMethod(echo: "foo") }`},
 			want: []fieldExpectations{
 				{key: "argsOnlyMethod", value: valueExpectations{scalar: "fooxyzzy"}},
 			},
@@ -303,7 +303,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ contextAndArgsMethod }`,
+			request: Request{Query: `{ contextAndArgsMethod }`},
 			want: []fieldExpectations{
 				{key: "contextAndArgsMethod", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -313,7 +313,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ contextAndArgsMethod(echo: "foo") }`,
+			request: Request{Query: `{ contextAndArgsMethod(echo: "foo") }`},
 			want: []fieldExpectations{
 				{key: "contextAndArgsMethod", value: valueExpectations{scalar: "fooxyzzy"}},
 			},
@@ -323,7 +323,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ errorMethod }`,
+			request: Request{Query: `{ errorMethod }`},
 			want: []fieldExpectations{
 				{key: "errorMethod", value: valueExpectations{null: true}},
 			},
@@ -339,7 +339,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ myAlias: errorMethod }`,
+			request: Request{Query: `{ myAlias: errorMethod }`},
 			want: []fieldExpectations{
 				{key: "myAlias", value: valueExpectations{null: true}},
 			},
@@ -355,11 +355,11 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt: newInt(42)}
 			},
-			query: `{
+			request: Request{Query: `{
 				error1: errorMethod
 				myInt
 				error2: errorMethod
-			}`,
+			}`},
 			want: []fieldExpectations{
 				{key: "error1", value: valueExpectations{null: true}},
 				{key: "myInt", value: valueExpectations{scalar: "42"}},
@@ -381,7 +381,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
 			},
-			query: `{ nilErrorMethod }`,
+			request: Request{Query: `{ nilErrorMethod }`},
 			want: []fieldExpectations{
 				{key: "nilErrorMethod", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -391,7 +391,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt32: newInt32(42)}
 			},
-			query: `{ magic: myInt32, myInt: myInt32 }`,
+			request: Request{Query: `{ magic: myInt32, myInt: myInt32 }`},
 			want: []fieldExpectations{
 				{key: "magic", value: valueExpectations{scalar: "42"}},
 				{key: "myInt", value: valueExpectations{scalar: "42"}},
@@ -402,7 +402,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return new(testQueryStruct)
 			},
-			query: `{ argWithDefault }`,
+			request: Request{Query: `{ argWithDefault }`},
 			want: []fieldExpectations{
 				{key: "argWithDefault", value: valueExpectations{scalar: "xyzzyxyzzy"}},
 			},
@@ -412,7 +412,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return new(testQueryStruct)
 			},
-			query: `{ argWithDefault(echo: "foo") }`,
+			request: Request{Query: `{ argWithDefault(echo: "foo") }`},
 			want: []fieldExpectations{
 				{key: "argWithDefault", value: valueExpectations{scalar: "foofoo"}},
 			},
@@ -422,7 +422,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return new(testQueryStruct)
 			},
-			query: `{ argWithDefault(echo: null) }`,
+			request: Request{Query: `{ argWithDefault(echo: null) }`},
 			want: []fieldExpectations{
 				{key: "argWithDefault", value: valueExpectations{scalar: ""}},
 			},
@@ -432,7 +432,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return new(testQueryStruct)
 			},
-			query: `{ inputObjectArgument(complex: { foo: "xyzzy" }) }`,
+			request: Request{Query: `{ inputObjectArgument(complex: { foo: "xyzzy" }) }`},
 			want: []fieldExpectations{
 				{key: "inputObjectArgument", value: valueExpectations{scalar: "xyzzy"}},
 			},
@@ -442,7 +442,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return new(testQueryStruct)
 			},
-			query: `{ inputObjectArgument(complex: null) }`,
+			request: Request{Query: `{ inputObjectArgument(complex: null) }`},
 			want: []fieldExpectations{
 				{key: "inputObjectArgument", value: valueExpectations{scalar: "<null input>"}},
 			},
@@ -460,7 +460,7 @@ func TestExecute(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			resp := srv.Execute(ctx, Request{Query: test.query})
+			resp := srv.Execute(ctx, test.request)
 			for _, e := range resp.Errors {
 				t.Logf("Error: %s", e.Message)
 			}
