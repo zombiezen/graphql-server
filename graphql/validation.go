@@ -61,7 +61,15 @@ func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []err
 			Locations: posListToLocationList(source, anonPosList),
 		})
 	}
-	for name, posList := range operationsByName {
+	for _, defn := range doc.Definitions {
+		if defn.Operation == nil || defn.Operation.Name == nil {
+			continue
+		}
+		name := defn.Operation.Name.Value
+		posList := operationsByName[name]
+		if defn.Operation.Name.Start == posList[0] {
+			continue
+		}
 		if len(posList) > 1 {
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Operation-Name-Uniqueness
 			errs = append(errs, &ResponseError{
