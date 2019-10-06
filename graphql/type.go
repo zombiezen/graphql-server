@@ -23,11 +23,11 @@ import "sync"
 // Types can be compared for equality using ==. Types with the same name from
 // different schemas are never equal.
 type gqlType struct {
-	scalar  string
-	list    *gqlType
-	obj     *objectType
-	input   *inputObjectType
-	nonNull bool
+	scalar   string
+	listElem *gqlType
+	obj      *objectType
+	input    *inputObjectType
+	nonNull  bool
 
 	// nullVariant is the same type with the nonNull flag flipped.
 	// This is to ensure that either version of the type has a consistent address.
@@ -53,6 +53,13 @@ type inputObjectType struct {
 }
 
 type inputValueDefinition struct {
+	// defaultValue.typ will always be set. Most of the time, defaultValue
+	// is valid value of the type. However, if the type is non-nullable and
+	// does not have a default, the value will be typed null.
+	//
+	// This is the only way to distinguish not having a default from having a
+	// null default, but it's the only situation in which not having a default is
+	// relevant in the GraphQL specification.
 	defaultValue Value
 }
 
@@ -95,8 +102,8 @@ func newInputObjectType(info *inputObjectType) *gqlType {
 
 func listOf(elem *gqlType) *gqlType {
 	elem.listInit.Do(func() {
-		nullable := &gqlType{list: elem}
-		nonNullable := &gqlType{list: elem, nonNull: true}
+		nullable := &gqlType{listElem: elem}
+		nonNullable := &gqlType{listElem: elem, nonNull: true}
 		nullable.nullVariant = nonNullable
 		nonNullable.nullVariant = nullable
 		elem.listOf_ = nullable
@@ -116,7 +123,7 @@ func (typ *gqlType) String() string {
 	case typ.isScalar():
 		return typ.scalar + suffix
 	case typ.isList():
-		return "[" + typ.list.String() + "]" + suffix
+		return "[" + typ.listElem.String() + "]" + suffix
 	case typ.isObject():
 		return typ.obj.name + suffix
 	case typ.isInputObject():
@@ -150,7 +157,7 @@ func (typ *gqlType) isScalar() bool {
 }
 
 func (typ *gqlType) isList() bool {
-	return typ.list != nil
+	return typ.listElem != nil
 }
 
 func (typ *gqlType) isObject() bool {
@@ -165,7 +172,7 @@ func (typ *gqlType) isInputObject() bool {
 // See https://graphql.github.io/graphql-spec/June2018/#IsInputType()
 func (typ *gqlType) isInputType() bool {
 	for typ.isList() {
-		typ = typ.list
+		typ = typ.listElem
 	}
 	// TODO(soon): Enum.
 	return typ.isScalar() || typ.isInputObject()
@@ -175,7 +182,7 @@ func (typ *gqlType) isInputType() bool {
 // See https://graphql.github.io/graphql-spec/June2018/#IsOutputType()
 func (typ *gqlType) isOutputType() bool {
 	for typ.isList() {
-		typ = typ.list
+		typ = typ.listElem
 	}
 	// TODO(soon): Interface, union, or enum.
 	return typ.isScalar() || typ.isObject()
@@ -183,10 +190,37 @@ func (typ *gqlType) isOutputType() bool {
 
 func (typ *gqlType) selectionSetType() *gqlType {
 	for typ.isList() {
-		typ = typ.list
+		typ = typ.listElem
 	}
 	if !typ.isObject() {
 		return nil
 	}
 	return typ
+}
+
+// areTypesCompatible reports if a value variableType can be passed to a usage
+// expecting locationType. See https://graphql.github.io/graphql-spec/June2018/#AreTypesCompatible()
+func areTypesCompatible(locationType, variableType *gqlType) bool {
+	for {
+		switch {
+		case !locationType.isNullable():
+			if variableType.isNullable() {
+				return false
+			}
+			locationType = locationType.toNullable()
+			variableType = variableType.toNullable()
+		case !variableType.isNullable():
+			variableType = variableType.toNullable()
+		case locationType.isList():
+			if !variableType.isList() {
+				return false
+			}
+			locationType = locationType.listElem
+			variableType = variableType.listElem
+		case variableType.isList():
+			return false
+		default:
+			return locationType == variableType
+		}
+	}
 }

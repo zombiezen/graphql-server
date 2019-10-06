@@ -26,11 +26,12 @@ type SelectionSet struct {
 	fields []*SelectedField
 }
 
-func newSelectionSet(source string, typ *objectType, ast *gqlang.SelectionSet) *SelectionSet {
+func newSelectionSet(source string, variables map[string]Value, typ *objectType, ast *gqlang.SelectionSet) (*SelectionSet, []error) {
 	if ast == nil {
-		return nil
+		return nil, nil
 	}
 	set := new(SelectionSet)
+	var errs []error
 	for _, sel := range ast.Sel {
 		if sel.Field != nil {
 			name := sel.Field.Name.Value
@@ -39,16 +40,25 @@ func newSelectionSet(source string, typ *objectType, ast *gqlang.SelectionSet) *
 				name: name,
 				key:  name,
 				loc:  astPositionToLocation(sel.Field.Start().ToPosition(source)),
-				sub:  newSelectionSet(source, fieldInfo.typ.obj, sel.Field.SelectionSet),
-				args: coerceArgumentValues(fieldInfo, sel.Field.Arguments),
 			}
 			if sel.Field.Alias != nil {
 				field.key = sel.Field.Alias.Value
 			}
 			set.fields = append(set.fields, field)
+
+			var subErrs []error
+			field.sub, subErrs = newSelectionSet(source, variables, fieldInfo.typ.obj, sel.Field.SelectionSet)
+			for _, err := range subErrs {
+				errs = append(errs, wrapFieldError(field.key, field.loc, err))
+			}
+			var argErrs []error
+			field.args, argErrs = coerceArgumentValues(source, variables, fieldInfo, sel.Field.Arguments)
+			for _, err := range argErrs {
+				errs = append(errs, wrapFieldError(field.key, field.loc, err))
+			}
 		}
 	}
-	return set
+	return set, errs
 }
 
 // Has reports whether the selection set includes the field with the given name.

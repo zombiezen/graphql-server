@@ -47,7 +47,7 @@ type Field struct {
 
 // valueFromGo converts a Go value into a GraphQL value. The selection set is
 // ignored for scalars.
-func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *SelectionSet) (Value, []error) {
+func valueFromGo(ctx context.Context, variables map[string]Value, goValue reflect.Value, typ *gqlType, sel *SelectionSet) (Value, []error) {
 	// Since this function is recursive, caller must prepend error operation.
 
 	goValue = unwrapPointer(goValue)
@@ -71,7 +71,7 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 		gqlValues := make([]Value, goValue.Len())
 		for i := range gqlValues {
 			var errs []error
-			gqlValues[i], errs = valueFromGo(ctx, goValue.Index(i), typ.list, sel)
+			gqlValues[i], errs = valueFromGo(ctx, variables, goValue.Index(i), typ.listElem, sel)
 			if len(errs) > 0 {
 				for j := range errs {
 					errs[j] = &listElementError{idx: i, err: errs[j]}
@@ -88,7 +88,7 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 		gqlFields := make([]Field, 0, len(sel.fields))
 		var errs []error
 		for _, f := range sel.fields {
-			fval, ferrs := readField(ctx, goValue, f, typ.obj.fields[f.name].typ)
+			fval, ferrs := readField(ctx, variables, goValue, f, typ.obj.fields[f.name].typ)
 			gqlFields = append(gqlFields, Field{Key: f.key, Value: fval})
 			errs = append(errs, ferrs...)
 		}
@@ -101,49 +101,92 @@ func valueFromGo(ctx context.Context, goValue reflect.Value, typ *gqlType, sel *
 // coerceArgumentValues uses the algorithm in
 // https://graphql.github.io/graphql-spec/June2018/#sec-Coercing-Field-Arguments
 // but assumes the arguments were validated.
-func coerceArgumentValues(fieldInfo objectTypeField, args *gqlang.Arguments) map[string]Value {
+func coerceArgumentValues(source string, variables map[string]Value, fieldInfo objectTypeField, args *gqlang.Arguments) (map[string]Value, []error) {
 	argValues := make(map[string]Value)
+	var errs []error
 	for name, defn := range fieldInfo.args {
 		arg := args.ByName(name)
-		// TODO(soon): If arg is a variable.
 		if arg == nil {
 			argValues[name] = defn.defaultValue
 			continue
 		}
-		argValues[name] = coerceInputValue(defn.typ(), arg.Value)
+		if arg.Value.VariableRef != nil {
+			if _, hasValue := variables[arg.Value.VariableRef.Name.Value]; !hasValue {
+				argValues[name] = defn.defaultValue
+				continue
+			}
+		}
+		var argErrs []error
+		argValues[name], argErrs = coerceInputValue(source, variables, defn.typ(), arg.Value)
+		for _, err := range argErrs {
+			errs = append(errs, xerrors.Errorf("argument %s: %w", name, err))
+		}
 	}
-	return argValues
+	return argValues, errs
 }
 
-func coerceInputValue(typ *gqlType, inputValue *gqlang.InputValue) Value {
+// coerceConstantInputValue converts a input literal without variables into a
+// value. It assumes that the input literal has been validated.
+func coerceConstantInputValue(typ *gqlType, inputValue *gqlang.InputValue) Value {
+	v, errs := coerceInputValue("", nil, typ, inputValue)
+	if len(errs) > 0 {
+		// This condition should be impossible.
+		panic(errs[0])
+	}
+	return v
+}
+
+// coerceInputValue converts an input expression possibly containing variables
+// into a value. It assumes that the input expression has been validated.
+func coerceInputValue(source string, variables map[string]Value, typ *gqlType, inputValue *gqlang.InputValue) (Value, []error) {
 	switch {
 	case inputValue.Null != nil:
-		return Value{typ: typ}
+		return Value{typ: typ}, nil
 	case inputValue.Scalar != nil:
 		return Value{
 			typ: typ,
 			val: inputValue.Scalar.Value(),
-		}
+		}, nil
 	case inputValue.InputObject != nil:
 		val := make(map[string]Value)
+		var errs []error
 		for _, field := range inputValue.InputObject.Fields {
 			fieldName := field.Name.Value
 			fieldType := typ.input.fields[fieldName].typ()
-			val[fieldName] = coerceInputValue(fieldType, field.Value)
+			var fieldErrs []error
+			val[fieldName], fieldErrs = coerceInputValue(source, variables, fieldType, field.Value)
+			for _, err := range fieldErrs {
+				errs = append(errs, xerrors.Errorf("input field %s: %w", fieldName, err))
+			}
 		}
-		return Value{typ: typ, val: val}
+		return Value{typ: typ, val: val}, errs
+	case inputValue.VariableRef != nil:
+		name := inputValue.VariableRef.Name.Value
+		v := variables[name]
+		if v.IsNull() && !typ.isNullable() {
+			return Value{typ: typ}, []error{&ResponseError{
+				Message: fmt.Sprintf("cannot use null variable $%s as %v", name, typ),
+				Locations: []Location{
+					astPositionToLocation(inputValue.VariableRef.Dollar.ToPosition(source)),
+				},
+			}}
+		}
+		return Value{
+			typ: typ,
+			val: v.val,
+		}, nil
 	default:
 		panic("unhandled input type")
 	}
 }
 
-func readField(ctx context.Context, goValue reflect.Value, f *SelectedField, typ *gqlType) (Value, []error) {
+func readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, f *SelectedField, typ *gqlType) (Value, []error) {
 	// TODO(soon): Search over all fields and/or methods to find case-insensitive match.
 	goName := graphQLToGoFieldName(f.name)
 
 	if len(f.args) == 0 && goValue.Kind() == reflect.Struct {
 		if fieldValue := goValue.FieldByName(goName); fieldValue.IsValid() {
-			v, errs := valueFromGo(ctx, fieldValue, typ, f.sub)
+			v, errs := valueFromGo(ctx, variables, fieldValue, typ, f.sub)
 			if len(errs) > 0 {
 				for i := range errs {
 					errs[i] = wrapFieldError(f.key, f.loc, errs[i])
@@ -165,7 +208,7 @@ func readField(ctx context.Context, goValue reflect.Value, f *SelectedField, typ
 	if err != nil {
 		return Value{typ: typ}, []error{wrapFieldError(f.key, f.loc, err)}
 	}
-	ret, errs := valueFromGo(ctx, methodResult, typ, f.sub)
+	ret, errs := valueFromGo(ctx, variables, methodResult, typ, f.sub)
 	if len(errs) > 0 {
 		for i := range errs {
 			errs[i] = wrapFieldError(f.key, f.loc, errs[i])

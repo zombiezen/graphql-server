@@ -87,10 +87,22 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 			},
 		}
 	}
+	varValues, errs := coerceVariableValues(req.Query, srv.schema.types, req.Variables, op.VariableDefinitions)
+	if len(errs) > 0 {
+		resp := Response{}
+		for _, err := range errs {
+			resp.Errors = append(resp.Errors, toResponseError(err))
+		}
+		return resp
+	}
 	var data Value
 	switch op.Type {
 	case gqlang.Query:
-		data, errs = valueFromGo(ctx, srv.query, srv.schema.query, newSelectionSet(req.Query, srv.schema.query.obj, op.SelectionSet))
+		var sel *SelectionSet
+		sel, errs = newSelectionSet(req.Query, varValues, srv.schema.query.obj, op.SelectionSet)
+		if len(errs) == 0 {
+			data, errs = valueFromGo(ctx, varValues, srv.query, srv.schema.query, sel)
+		}
 	case gqlang.Mutation:
 		if !srv.mutation.IsValid() {
 			pos := op.Start.ToPosition(req.Query)
@@ -104,7 +116,11 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 				}},
 			}
 		}
-		data, errs = valueFromGo(ctx, srv.mutation, srv.schema.mutation, newSelectionSet(req.Query, srv.schema.mutation.obj, op.SelectionSet))
+		var sel *SelectionSet
+		sel, errs = newSelectionSet(req.Query, varValues, srv.schema.mutation.obj, op.SelectionSet)
+		if len(errs) == 0 {
+			data, errs = valueFromGo(ctx, varValues, srv.mutation, srv.schema.mutation, sel)
+		}
 	default:
 		pos := op.Start.ToPosition(req.Query)
 		return Response{

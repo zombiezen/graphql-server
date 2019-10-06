@@ -173,10 +173,10 @@ func fillObjectTypeFields(source string, typeMap map[string]*gqlType, obj *gqlan
 				}
 				defaultValue := Value{typ: typ}
 				if arg.Default != nil {
-					if errs := validateValue(source, typ, arg.Default.Value); len(errs) > 0 {
+					if errs := validateConstantValue(source, typ, arg.Default.Value); len(errs) > 0 {
 						return errs[0]
 					}
-					defaultValue = coerceInputValue(typ, arg.Default.Value)
+					defaultValue = coerceConstantInputValue(typ, arg.Default.Value)
 				}
 				f.args[argName] = inputValueDefinition{defaultValue: defaultValue}
 			}
@@ -205,7 +205,7 @@ func fillInputObjectTypeFields(source string, typeMap map[string]*gqlType, obj *
 		}
 		var f inputValueDefinition
 		if fieldDefn.Default != nil {
-			f.defaultValue = coerceInputValue(typ, fieldDefn.Default.Value)
+			f.defaultValue = coerceConstantInputValue(typ, fieldDefn.Default.Value)
 		} else {
 			f.defaultValue.typ = typ
 		}

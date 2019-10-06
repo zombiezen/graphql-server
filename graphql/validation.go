@@ -62,17 +62,17 @@ func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []err
 			Locations: posListToLocationList(source, anonPosList),
 		})
 	}
+	// https://graphql.github.io/graphql-spec/June2018/#sec-Operation-Name-Uniqueness
 	for _, defn := range doc.Definitions {
 		if defn.Operation == nil || defn.Operation.Name == nil {
 			continue
 		}
 		name := defn.Operation.Name.Value
 		posList := operationsByName[name]
-		if defn.Operation.Name.Start == posList[0] {
+		if defn.Operation.Name.Start != posList[0] {
 			continue
 		}
 		if len(posList) > 1 {
-			// https://graphql.github.io/graphql-spec/June2018/#sec-Operation-Name-Uniqueness
 			errs = append(errs, &ResponseError{
 				Message:   fmt.Sprintf("multiple operations with name %q", name),
 				Locations: posListToLocationList(source, posList),
@@ -82,6 +82,7 @@ func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []err
 	if len(errs) > 0 {
 		return errs
 	}
+
 	for _, defn := range doc.Definitions {
 		op := defn.Operation
 		if op == nil {
@@ -97,12 +98,137 @@ func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []err
 			})
 			continue
 		}
-		errs = append(errs, validateSelectionSet(source, opType, op.SelectionSet)...)
+		variables, varErrs := validateVariables(source, schema.types, op.VariableDefinitions)
+		if len(varErrs) > 0 {
+			if op.Name != nil {
+				for _, err := range varErrs {
+					errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name, err))
+				}
+			} else {
+				errs = append(errs, varErrs...)
+			}
+			continue
+		}
+		selErrs := validateSelectionSet(source, variables, opType, op.SelectionSet)
+		if op.Name != nil {
+			for _, err := range selErrs {
+				errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name, err))
+			}
+		} else {
+			errs = append(errs, selErrs...)
+		}
+		useErrs := validateVariableUsage(source, op.VariableDefinitions, variables)
+		if op.Name != nil {
+			for _, err := range useErrs {
+				errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name, err))
+			}
+		} else {
+			errs = append(errs, useErrs...)
+		}
 	}
 	return errs
 }
 
-func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet) []error {
+type validatedVariable struct {
+	name         string
+	defaultValue Value
+	used         bool
+}
+
+func (vv *validatedVariable) typ() *gqlType {
+	return vv.defaultValue.typ
+}
+
+// validateVariables validates an operation's variables and resolves their types.
+func validateVariables(source string, typeMap map[string]*gqlType, defns *gqlang.VariableDefinitions) (map[string]*validatedVariable, []error) {
+	if defns == nil {
+		return nil, nil
+	}
+	variablesByName := make(map[string][]gqlang.Pos)
+	result := make(map[string]*validatedVariable)
+	var errs []error
+	for _, defn := range defns.Defs {
+		name := defn.Var.Name.Value
+		variablesByName[name] = append(variablesByName[name], defn.Var.Dollar)
+
+		// https://graphql.github.io/graphql-spec/June2018/#sec-Variables-Are-Input-Types
+		typ := resolveTypeRef(typeMap, defn.Type)
+		if typ == nil {
+			errs = append(errs, &ResponseError{
+				Message: fmt.Sprintf("undefined type %v", defn.Type),
+				Locations: []Location{
+					astPositionToLocation(defn.Type.Start().ToPosition(source)),
+				},
+			})
+			continue
+		}
+		if !typ.isInputType() {
+			errs = append(errs, &ResponseError{
+				Message: fmt.Sprintf("%v is not an input type", defn.Type),
+				Locations: []Location{
+					astPositionToLocation(defn.Type.Start().ToPosition(source)),
+				},
+			})
+			continue
+		}
+		vv := &validatedVariable{
+			name:         name,
+			defaultValue: Value{typ: typ},
+		}
+		result[name] = vv
+		if defn.Default != nil {
+			defaultErrs := validateConstantValue(source, typ, defn.Default.Value)
+			if len(defaultErrs) > 0 {
+				for _, err := range defaultErrs {
+					errs = append(errs, xerrors.Errorf("variable $%s: %w", name, err))
+				}
+				continue
+			}
+			vv.defaultValue = coerceConstantInputValue(typ, defn.Default.Value)
+		}
+	}
+
+	// https://graphql.github.io/graphql-spec/June2018/#sec-Variable-Uniqueness
+	for _, defn := range defns.Defs {
+		name := defn.Var.Name.Value
+		posList := variablesByName[name]
+		if defn.Var.Dollar != posList[0] {
+			continue
+		}
+		if len(posList) > 1 {
+			errs = append(errs, &ResponseError{
+				Message:   fmt.Sprintf("multiple variables with name %q", name),
+				Locations: posListToLocationList(source, posList),
+			})
+		}
+	}
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	return result, nil
+}
+
+// validateVariableUsage verifies that all variables defined in the operation are used. See https://graphql.github.io/graphql-spec/June2018/#sec-All-Variables-Used
+func validateVariableUsage(source string, defns *gqlang.VariableDefinitions, variables map[string]*validatedVariable) []error {
+	if defns == nil {
+		return nil
+	}
+	var errs []error
+	for _, defn := range defns.Defs {
+		name := defn.Var.Name.Value
+		if !variables[name].used {
+			errs = append(errs, &ResponseError{
+				Message: fmt.Sprintf("unused variable $%s", name),
+				Locations: []Location{
+					astPositionToLocation(defn.Var.Dollar.ToPosition(source)),
+				},
+			})
+		}
+	}
+	return errs
+}
+
+func validateSelectionSet(source string, variables map[string]*validatedVariable, typ *gqlType, set *gqlang.SelectionSet) []error {
 	var errs []error
 	for _, selection := range set.Sel {
 		fieldInfo := typ.obj.fields[selection.Field.Name.Value]
@@ -120,7 +246,7 @@ func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet)
 			continue
 		}
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Validation.Arguments
-		argsErrs := validateArguments(source, fieldInfo.args, selection.Field.Arguments)
+		argsErrs := validateArguments(source, variables, fieldInfo.args, selection.Field.Arguments)
 		if len(argsErrs) > 0 {
 			argsPos := selection.Field.Name.End()
 			if selection.Field.Arguments != nil {
@@ -146,7 +272,7 @@ func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet)
 				})
 				continue
 			}
-			subErrs := validateSelectionSet(source, subsetType, selection.Field.SelectionSet)
+			subErrs := validateSelectionSet(source, variables, subsetType, selection.Field.SelectionSet)
 			for _, err := range subErrs {
 				errs = append(errs, wrapFieldError(selection.Field.Key(), loc, err))
 			}
@@ -165,7 +291,7 @@ func validateSelectionSet(source string, typ *gqlType, set *gqlang.SelectionSet)
 	return errs
 }
 
-func validateArguments(source string, defns map[string]inputValueDefinition, args *gqlang.Arguments) []error {
+func validateArguments(source string, variables map[string]*validatedVariable, defns map[string]inputValueDefinition, args *gqlang.Arguments) []error {
 	var argumentNames []string
 	argumentsByName := make(map[string][]*gqlang.Argument)
 	var endLocation []Location
@@ -211,11 +337,13 @@ func validateArguments(source string, defns map[string]inputValueDefinition, arg
 		if defn.typ().isNullable() {
 			continue
 		}
-		if len(argumentsByName[name]) == 0 && defn.defaultValue.IsNull() {
-			errs = append(errs, &ResponseError{
-				Message:   fmt.Sprintf("missing required argument %s", name),
-				Locations: endLocation,
-			})
+		if len(argumentsByName[name]) == 0 {
+			if defn.defaultValue.IsNull() {
+				errs = append(errs, &ResponseError{
+					Message:   fmt.Sprintf("missing required argument %s", name),
+					Locations: endLocation,
+				})
+			}
 			continue
 		}
 		arg := argumentsByName[name][0]
@@ -237,7 +365,7 @@ func validateArguments(source string, defns map[string]inputValueDefinition, arg
 		if len(args) == 0 {
 			continue
 		}
-		argErrs := validateValue(source, defn.typ(), args[0].Value)
+		argErrs := validateValue(source, variables, defn.typ(), !defn.defaultValue.IsNull(), args[0].Value)
 		for _, err := range argErrs {
 			errs = append(errs, xerrors.Errorf("argument %s: %w", name, err))
 		}
@@ -245,7 +373,11 @@ func validateArguments(source string, defns map[string]inputValueDefinition, arg
 	return errs
 }
 
-func validateValue(source string, typ *gqlType, val *gqlang.InputValue) []error {
+func validateConstantValue(source string, typ *gqlType, val *gqlang.InputValue) []error {
+	return validateValue(source, nil, typ, false, val)
+}
+
+func validateValue(source string, variables map[string]*validatedVariable, typ *gqlType, hasDefault bool, val *gqlang.InputValue) []error {
 	if val.Null != nil {
 		if !typ.isNullable() {
 			return []error{&ResponseError{
@@ -257,52 +389,46 @@ func validateValue(source string, typ *gqlType, val *gqlang.InputValue) []error 
 		}
 		return nil
 	}
+	if val.VariableRef != nil {
+		vv := variables[val.VariableRef.Name.Value]
+		// https://graphql.github.io/graphql-spec/June2018/#sec-All-Variable-Uses-Defined
+		if vv == nil {
+			return []error{&ResponseError{
+				Message: fmt.Sprintf("undefined variable $%s", val.VariableRef.Name.Value),
+				Locations: []Location{
+					astPositionToLocation(val.VariableRef.Dollar.ToPosition(source)),
+				},
+			}}
+		}
+		if err := validateVariableRef(typ, hasDefault, vv); err != nil {
+			return []error{&ResponseError{
+				Message: err.Error(),
+				Locations: []Location{
+					astPositionToLocation(val.VariableRef.Dollar.ToPosition(source)),
+				},
+			}}
+		}
+		return nil
+	}
 	genericErr := &ResponseError{
 		Message: fmt.Sprintf("cannot coerce %v to %v", val, typ),
 		Locations: []Location{
 			astPositionToLocation(val.Start().ToPosition(source)),
 		},
 	}
-	switch nullableType := typ.toNullable(); {
-	case nullableType == intType:
-		if val.Scalar == nil || val.Scalar.Type != gqlang.IntScalar {
-			return []error{genericErr}
-		}
-		scalar := val.Scalar.Value()
-		if _, err := strconv.ParseInt(scalar, 10, 32); err != nil {
-			return []error{&ResponseError{
-				Message:   fmt.Sprintf("%q is not in the range of a 32-bit integer", scalar),
-				Locations: genericErr.Locations,
-			}}
-		}
-	case nullableType == floatType:
-		if val.Scalar == nil || (val.Scalar.Type != gqlang.FloatScalar && val.Scalar.Type != gqlang.IntScalar) {
-			return []error{genericErr}
-		}
-		scalar := val.Scalar.Value()
-		if _, err := strconv.ParseFloat(scalar, 64); err != nil {
-			return []error{&ResponseError{
-				Message:   fmt.Sprintf("%q is not representable as a float", scalar),
-				Locations: genericErr.Locations,
-			}}
-		}
-	case nullableType == stringType:
-		if val.Scalar == nil || val.Scalar.Type != gqlang.StringScalar {
-			return []error{genericErr}
-		}
-	case nullableType == booleanType:
-		if val.Scalar == nil || val.Scalar.Type != gqlang.BooleanScalar {
-			return []error{genericErr}
-		}
-	case nullableType == idType:
-		if val.Scalar == nil || (val.Scalar.Type != gqlang.StringScalar && val.Scalar.Type != gqlang.IntScalar) {
-			return []error{genericErr}
-		}
-	case nullableType.isScalar():
+	switch {
+	case typ.isScalar():
 		if val.Scalar == nil {
 			return []error{genericErr}
 		}
-	case nullableType.isInputObject():
+		err := validateScalar(typ, val.Scalar.Value(), scalarTypeAffinity(val.Scalar.Type))
+		if err != nil {
+			return []error{&ResponseError{
+				Message:   err.Error(),
+				Locations: genericErr.Locations,
+			}}
+		}
+	case typ.isInputObject():
 		if val.InputObject == nil {
 			return []error{genericErr}
 		}
@@ -328,7 +454,7 @@ func validateValue(source string, typ *gqlType, val *gqlang.InputValue) []error 
 			if len(fieldList) > 1 && field == fieldList[0] {
 				// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Field-Uniqueness
 				e := &ResponseError{
-					Message: fmt.Sprintf("multiple input fields for %v.%s", nullableType, name),
+					Message: fmt.Sprintf("multiple input fields for %v.%s", typ.toNullable(), name),
 				}
 				for _, g := range fieldList {
 					e.Locations = append(e.Locations, astPositionToLocation(g.Name.Start.ToPosition(source)))
@@ -341,7 +467,7 @@ func validateValue(source string, typ *gqlType, val *gqlang.InputValue) []error 
 			if len(fieldsByName[name]) == 0 {
 				if !defn.typ().isNullable() && defn.defaultValue.IsNull() {
 					errs = append(errs, &ResponseError{
-						Message: fmt.Sprintf("missing required input field for %v.%s", nullableType, name),
+						Message: fmt.Sprintf("missing required input field for %v.%s", typ.toNullable(), name),
 						Locations: []Location{
 							astPositionToLocation(val.InputObject.RBrace.ToPosition(source)),
 						},
@@ -352,14 +478,14 @@ func validateValue(source string, typ *gqlType, val *gqlang.InputValue) []error 
 			field := fieldsByName[name][0]
 			if !defn.typ().isNullable() && field.Value.Null != nil {
 				errs = append(errs, &ResponseError{
-					Message: fmt.Sprintf("required input field %v.%s is null", nullableType, name),
+					Message: fmt.Sprintf("required input field %v.%s is null", typ.toNullable(), name),
 					Locations: []Location{
 						astPositionToLocation(field.Value.Null.Start.ToPosition(source)),
 					},
 				})
 				continue
 			}
-			fieldErrs := validateValue(source, defn.typ(), field.Value)
+			fieldErrs := validateValue(source, variables, defn.typ(), !defn.defaultValue.IsNull(), field.Value)
 			for _, err := range fieldErrs {
 				errs = append(errs, xerrors.Errorf("input field %s: %w", name, err))
 			}
@@ -367,6 +493,75 @@ func validateValue(source string, typ *gqlType, val *gqlang.InputValue) []error 
 		return errs
 	}
 	return nil
+}
+
+// validateVariableRef returns an error if the variable usage is not allowed.
+// See https://graphql.github.io/graphql-spec/June2018/#sec-All-Variable-Usages-are-Allowed
+func validateVariableRef(typ *gqlType, usageHasDefault bool, vv *validatedVariable) error {
+	vv.used = true
+	locationType := typ
+	if !typ.isNullable() && vv.typ().isNullable() {
+		if vv.defaultValue.IsNull() && !usageHasDefault {
+			return xerrors.Errorf("nullable variable $%s not permitted for %v", vv.name, typ)
+		}
+		locationType = typ.toNullable()
+	}
+	if !areTypesCompatible(locationType, vv.typ()) {
+		return xerrors.Errorf("variable $%s (type %v) not allowed as %v", vv.name, vv.typ(), typ)
+	}
+	return nil
+}
+
+func validateScalar(typ *gqlType, scalar string, aff scalarAffinity) error {
+	format := "cannot coerce %v to %v"
+	if aff == noAffinity || aff == stringAffinity {
+		format = "cannot coerce %q to %v"
+	}
+	genericErr := xerrors.Errorf(format, scalar, typ)
+	switch nullableType := typ.toNullable(); {
+	case nullableType == intType:
+		if aff != noAffinity && aff != intAffinity {
+			return genericErr
+		}
+		if _, err := strconv.ParseInt(scalar, 10, 32); err != nil {
+			return xerrors.Errorf("%q is not in the range of a 32-bit integer", scalar)
+		}
+	case nullableType == floatType:
+		if aff != noAffinity && aff != intAffinity && aff != floatAffinity {
+			return genericErr
+		}
+		if _, err := strconv.ParseFloat(scalar, 64); err != nil {
+			return xerrors.Errorf("%q is not representable as a float", scalar)
+		}
+	case nullableType == stringType:
+		if aff != noAffinity && aff != stringAffinity {
+			return genericErr
+		}
+	case nullableType == booleanType:
+		if aff != noAffinity && aff != booleanAffinity {
+			return genericErr
+		}
+	case nullableType == idType:
+		if aff != noAffinity && aff != stringAffinity && aff != intAffinity {
+			return genericErr
+		}
+	}
+	return nil
+}
+
+type scalarAffinity int
+
+const (
+	noAffinity      = scalarAffinity(0)
+	stringAffinity  = scalarAffinity(1 + gqlang.StringScalar)
+	booleanAffinity = scalarAffinity(1 + gqlang.BooleanScalar)
+	enumAffinity    = scalarAffinity(1 + gqlang.EnumScalar)
+	intAffinity     = scalarAffinity(1 + gqlang.IntScalar)
+	floatAffinity   = scalarAffinity(1 + gqlang.FloatScalar)
+)
+
+func scalarTypeAffinity(styp gqlang.ScalarType) scalarAffinity {
+	return 1 + scalarAffinity(styp)
 }
 
 func posListToLocationList(source string, posList []gqlang.Pos) []Location {

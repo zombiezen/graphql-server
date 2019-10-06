@@ -43,6 +43,8 @@ func TestExecute(t *testing.T) {
 			argsOnlyMethod(echo: String): String
 			contextAndArgsMethod(echo: String): String
 			argWithDefault(echo: String = "xyzzy"): String
+			requiredArg(echo: String!): String!
+			requiredArgWithDefault(echo: String! = "xyzzy"): String!
 
 			nilErrorMethod: String
 			errorMethod: String
@@ -299,6 +301,72 @@ func TestExecute(t *testing.T) {
 			},
 		},
 		{
+			name: "Object/Method/ArgsOnly/Variable",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{
+				Query: `query($stringArg: String) {
+					argsOnlyMethod(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{
+					"stringArg": ScalarInput("foo"),
+				},
+			},
+			want: []fieldExpectations{
+				{key: "argsOnlyMethod", value: valueExpectations{scalar: "fooxyzzy"}},
+			},
+		},
+		{
+			name: "Object/Method/ArgsOnly/VariableWithDefault/Unspecified",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{
+				Query: `query($stringArg: String = "foo") {
+					argsOnlyMethod(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{},
+			},
+			want: []fieldExpectations{
+				{key: "argsOnlyMethod", value: valueExpectations{scalar: "fooxyzzy"}},
+			},
+		},
+		{
+			name: "Object/Method/ArgsOnly/VariableWithDefault/Overridden",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{
+				Query: `query($stringArg: String = "foo") {
+					argsOnlyMethod(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{
+					"stringArg": ScalarInput("bar"),
+				},
+			},
+			want: []fieldExpectations{
+				{key: "argsOnlyMethod", value: valueExpectations{scalar: "barxyzzy"}},
+			},
+		},
+		{
+			name: "Object/Method/ArgsOnly/VariableWithDefault/Null",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{
+				Query: `query($stringArg: String = "foo") {
+					argsOnlyMethod(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{
+					"stringArg": {},
+				},
+			},
+			want: []fieldExpectations{
+				{key: "argsOnlyMethod", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		},
+		{
 			name: "Object/Method/ContextAndArgs/Null",
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{e: e}
@@ -428,6 +496,120 @@ func TestExecute(t *testing.T) {
 			},
 		},
 		{
+			name: "Object/ArgumentWithDefault/UnspecifiedVariable",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `query ($stringArg: String) {
+					argWithDefault(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{},
+			},
+			want: []fieldExpectations{
+				{key: "argWithDefault", value: valueExpectations{scalar: "xyzzyxyzzy"}},
+			},
+		},
+		{
+			name: "Object/RequiredArgument/VariableDefault",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{
+				Query: `query($stringArg: String = "bork") {
+					requiredArg(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{},
+			},
+			want: []fieldExpectations{
+				{key: "requiredArg", value: valueExpectations{scalar: "borkbork"}},
+			},
+		},
+		{
+			name: "Object/RequiredArgument/VariableNull",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{
+				Query: `query($stringArg: String = "bork") {
+					requiredArg(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{"stringArg": {}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 59},
+					},
+					Path: []PathSegment{
+						{Field: "requiredArg"},
+					},
+				},
+			},
+		},
+		{
+			name: "Object/RequiredArgumentWithDefault/Variable",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{
+				Query: `query ($stringArg: String) {
+					requiredArgWithDefault(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{"stringArg": ScalarInput("foo")},
+			},
+			want: []fieldExpectations{
+				{key: "requiredArgWithDefault", value: valueExpectations{scalar: "foofoo"}},
+			},
+		},
+		{
+			name: "Object/RequiredArgumentWithDefault/Unspecified",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{Query: `{ requiredArgWithDefault }`},
+			want: []fieldExpectations{
+				{key: "requiredArgWithDefault", value: valueExpectations{scalar: "xyzzyxyzzy"}},
+			},
+		},
+		{
+			name: "Object/RequiredArgumentWithDefault/UnspecifiedVariable",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{
+				Query: `query ($stringArg: String) {
+					requiredArgWithDefault(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{},
+			},
+			want: []fieldExpectations{
+				{key: "requiredArgWithDefault", value: valueExpectations{scalar: "xyzzyxyzzy"}},
+			},
+		},
+		{
+			name: "Object/RequiredArgumentWithDefault/NullVariable",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{e: e}
+			},
+			request: Request{
+				Query: `query ($stringArg: String) {
+					requiredArgWithDefault(echo: $stringArg)
+				}`,
+				Variables: map[string]Input{"stringArg": Input{}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 70},
+					},
+					Path: []PathSegment{
+						{Field: "requiredArgWithDefault"},
+					},
+				},
+			},
+		},
+		{
 			name: "Object/InputObjectArgument",
 			queryObject: func(e errorfer) interface{} {
 				return new(testQueryStruct)
@@ -466,6 +648,9 @@ func TestExecute(t *testing.T) {
 			}
 			if diff := compareErrors(test.wantErrors, resp.Errors); diff != "" {
 				t.Errorf("errors (-want +got):\n%s", diff)
+			}
+			if len(test.want) == 0 && resp.Data.IsNull() {
+				return
 			}
 			expect := &valueExpectations{object: test.want}
 			expect.check(t, resp.Data)
@@ -551,6 +736,22 @@ func (q *testQueryStruct) ContextAndArgsMethod(ctx context.Context, args map[str
 }
 
 func (q *testQueryStruct) ArgWithDefault(args map[string]Value) string {
+	echo := args["echo"].Scalar()
+	return echo + echo
+}
+
+func (q *testQueryStruct) RequiredArg(args map[string]Value) string {
+	if args["echo"].IsNull() {
+		q.e.Errorf("echo is null")
+	}
+	echo := args["echo"].Scalar()
+	return echo + echo
+}
+
+func (q *testQueryStruct) RequiredArgWithDefault(args map[string]Value) string {
+	if args["echo"].IsNull() {
+		q.e.Errorf("echo is null")
+	}
 	echo := args["echo"].Scalar()
 	return echo + echo
 }

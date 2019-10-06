@@ -19,8 +19,10 @@ package graphql
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 
 	"golang.org/x/xerrors"
+	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
 
 // Input is a typeless GraphQL value. The zero value is null.
@@ -28,8 +30,23 @@ type Input struct {
 	val interface{} // one of nil, string, map[string]Input, or []Input
 }
 
-// IsNull reports whether the input represents the null value.
-func (in Input) IsNull() bool {
+// ScalarInput returns a new input with the given scalar value.
+func ScalarInput(s string) Input {
+	return Input{val: s}
+}
+
+// InputObject returns a new input with the given scalar value.
+func InputObject(obj map[string]Input) Input {
+	return Input{val: obj}
+}
+
+// ListInput returns a new input with the given scalar value.
+func ListInput(list []Input) Input {
+	return Input{val: list}
+}
+
+// isNull reports whether the input represents the null value.
+func (in Input) isNull() bool {
 	return in.val == nil
 }
 
@@ -72,4 +89,105 @@ func (in *Input) UnmarshalJSON(data []byte) error {
 		in.val = string(data)
 	}
 	return nil
+}
+
+// coerceVariableValues converts inputs into values.
+// The procedure is specified in https://graphql.github.io/graphql-spec/June2018/#CoerceVariableValues()
+func coerceVariableValues(source string, typeMap map[string]*gqlType, vars map[string]Input, defns *gqlang.VariableDefinitions) (map[string]Value, []error) {
+	if defns == nil {
+		return nil, nil
+	}
+	coerced := make(map[string]Value)
+	var errs []error
+	for _, defn := range defns.Defs {
+		name := defn.Var.Name.Value
+		typ := resolveTypeRef(typeMap, defn.Type)
+		input, hasValue := vars[name]
+		switch {
+		case !hasValue && defn.Default != nil:
+			coerced[name] = coerceConstantInputValue(typ, defn.Default.Value)
+		case !typ.isNullable() && input.isNull():
+			errs = append(errs, &ResponseError{
+				Message: fmt.Sprintf("variable $%s is required", name),
+				Locations: []Location{
+					astPositionToLocation(defn.Var.Dollar.ToPosition(source)),
+				},
+			})
+		case hasValue && input.isNull():
+			coerced[name] = Value{typ: typ}
+		case hasValue && !input.isNull():
+			var varErrs []error
+			coerced[name], varErrs = coerceInput(typ, input)
+			for _, err := range varErrs {
+				errs = append(errs, xerrors.Errorf("variable $%s: %w", name, err))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	return coerced, nil
+}
+
+func coerceInput(typ *gqlType, input Input) (Value, []error) {
+	// This is distinct from coerceInputValue because there's no error position
+	// information associated. Creating a unified structure to increase code
+	// reuse would likely bring more confusion and a performance hit over the
+	// current situation.
+
+	if input.isNull() {
+		if !typ.isNullable() {
+			return Value{}, []error{xerrors.Errorf("null not permitted for %v", typ)}
+		}
+		return Value{}, nil
+	}
+	switch {
+	case typ.isScalar():
+		scalar, ok := input.val.(string)
+		if !ok {
+			return Value{}, []error{xerrors.Errorf("non-scalar found for %v", typ)}
+		}
+		if err := validateScalar(typ, scalar, noAffinity); err != nil {
+			return Value{}, []error{err}
+		}
+		return Value{typ: typ, val: scalar}, nil
+	case typ.isInputObject():
+		inputObj, ok := input.val.(map[string]Input)
+		if !ok {
+			return Value{}, []error{xerrors.Errorf("non-object found for %v", typ)}
+		}
+		valueMap := make(map[string]Value)
+		var errs []error
+		for name := range inputObj {
+			if _, exists := typ.input.fields[name]; !exists {
+				// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Field-Names
+				errs = append(errs, xerrors.Errorf("unknown input field %s for %v", name, typ))
+			}
+		}
+		// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Required-Fields
+		for name, defn := range typ.input.fields {
+			if _, hasValue := inputObj[name]; !hasValue {
+				if !defn.typ().isNullable() && defn.defaultValue.IsNull() {
+					errs = append(errs, xerrors.Errorf("missing required input field for %v.%s", typ.toNullable(), name))
+				}
+				continue
+			}
+			field := inputObj[name]
+			if !defn.typ().isNullable() && field.isNull() {
+				errs = append(errs, xerrors.Errorf("required input field %v.%s is null", typ.toNullable(), name))
+				continue
+			}
+			var fieldErrs []error
+			valueMap[name], fieldErrs = coerceInput(typ, field)
+			for _, err := range fieldErrs {
+				errs = append(errs, xerrors.Errorf("input field %s: %w", name, err))
+			}
+		}
+		if len(errs) > 0 {
+			return Value{}, errs
+		}
+		return Value{typ: typ, val: valueMap}, nil
+	default:
+		panic("unhandled input type")
+	}
 }

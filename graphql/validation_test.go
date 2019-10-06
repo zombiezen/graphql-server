@@ -599,6 +599,208 @@ func TestValidateRequest(t *testing.T) {
 				},
 			},
 		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-b767a
+			name: "Variables/Uniqueness/Fail",
+			request: `
+				query houseTrainedQuery($atOtherHomes: Boolean, $atOtherHomes: Boolean) {
+					dog {
+						isHousetrained(atOtherHomes: $atOtherHomes)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 57},
+						{2, 81},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-6f6b9
+			name: "Variables/Uniqueness/NotAcrossOperations",
+			request: `
+				query A($atOtherHomes: Boolean) {
+					dog {
+						isHousetrained(atOtherHomes: $atOtherHomes)
+					}
+				}
+
+				query B($atOtherHomes: Boolean) {
+					dog {
+						isHousetrained(atOtherHomes: $atOtherHomes)
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-77f18
+			name: "Variables/InputType/Valid",
+			request: `
+				query takesBoolean($atOtherHomes: Boolean) {
+					dog {
+						isHousetrained(atOtherHomes: $atOtherHomes)
+					}
+				}
+
+				query takesComplexInput($complexInput: ComplexInput) {
+					findDog(complex: $complexInput) {
+						name
+					}
+				}
+
+				query TakesListOfBooleanBang($booleans: [Boolean!]) {
+					booleanList(booleanListArg: $booleans)
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-aeba9
+			name: "Variables/InputType/Invalid",
+			request: `
+				query takesDog($dog: Dog) {
+					dog { name }
+				}
+
+				query takesDogBang($dog: Dog!) {
+					dog { name }
+				}
+
+				query takesListOfDog($dogs: [Dog]) {
+					dog { name }
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 54},
+					},
+				},
+				{
+					Locations: []Location{
+						{6, 58},
+					},
+				},
+				{
+					Locations: []Location{
+						{10, 61},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-a5099
+			name: "Variables/Defined/Valid",
+			request: `
+				query variableIsDefined($atOtherHomes: Boolean) {
+					dog {
+						isHousetrained(atOtherHomes: $atOtherHomes)
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-c8425
+			name: "Variables/Defined/Invalid",
+			request: `
+				query variableIsNotDefined {
+					dog {
+						isHousetrained(atOtherHomes: $atOtherHomes)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 78},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "isHousetrained"},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-516af
+			name: "Variables/Unused",
+			request: `
+				query variableUnused($atOtherHomes: Boolean) {
+					dog {
+						isHousetrained
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 54},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-2028e
+			name: "Variables/TypeCheck/Wrong",
+			request: `
+				query intCannotGoIntoBoolean($intArg: Int) {
+					arguments {
+						booleanArgField(booleanArg: $intArg)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 77},
+					},
+					Path: []PathSegment{
+						{Field: "arguments"},
+						{Field: "booleanArgField"},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-ed727
+			name: "Variables/TypeCheck/Nullability",
+			request: `
+				query booleanArgQuery($booleanArg: Boolean) {
+					arguments {
+						nonNullBooleanArgField(nonNullBooleanArg: $booleanArg)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 91},
+					},
+					Path: []PathSegment{
+						{Field: "arguments"},
+						{Field: "nonNullBooleanArgField"},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-0877c
+			name: "Variables/TypeCheck/NullabilityWithDefault",
+			request: `
+				query booleanArgQueryWithDefault($booleanArg: Boolean) {
+					arguments {
+						optionalNonNullBooleanArgField(optionalBooleanArg: $booleanArg)
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-d24d9
+			name: "Variables/TypeCheck/NullabilityWithVarDefault",
+			request: `
+				query booleanArgQueryWithDefault($booleanArg: Boolean = true) {
+					arguments {
+						nonNullBooleanArgField(nonNullBooleanArg: $booleanArg)
+					}
+				}`,
+			wantErrors: nil,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
