@@ -5,7 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-Known unimplemented features:
+### Added
+
+-  Scalar types
+-  List types
+-  Input object types
+-  Field arguments
+-  Variables
+-  Field methods can inspect their selection set
+-  Schema validation
+-  Validation
+-  Marshaling of Go types into GraphQL output types
+-  Context propagation
+-  Precise error reporting
+
+### Not Implemented
 
 -  Extensions
 -  Directives
@@ -16,15 +30,3 @@ Known unimplemented features:
 -  Concurrent field resolution
 -  Validation for custom scalar types
 -  Unmarshaling of arguments into Go types
-
-### Added
-
--  Scalar types
--  Input object types
--  Field arguments
--  Field methods can inspect their selection set
--  Schema validation
--  Validation
--  Marshaling of Go types into GraphQL output types
--  Context propagation
--  Precise error reporting
