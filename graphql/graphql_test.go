@@ -18,6 +18,7 @@ package graphql
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -49,6 +50,7 @@ func TestExecute(t *testing.T) {
 			nilErrorMethod: String
 			errorMethod: String
 
+			listArgument(truths: [Boolean]): String
 			inputObjectArgument(complex: Complex): String
 		}
 
@@ -610,6 +612,103 @@ func TestExecute(t *testing.T) {
 			},
 		},
 		{
+			name: "Object/ListArgument",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `{
+					listArgument(truths: [true, false, true])
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "listArgument", value: valueExpectations{scalar: "101"}},
+			},
+		},
+		{
+			name: "Object/ListArgument/Null",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `{
+					listArgument(truths: null)
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "listArgument", value: valueExpectations{scalar: ""}},
+			},
+		},
+		{
+			name: "Object/ListArgument/Scalar",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `{
+					listArgument(truths: true)
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "listArgument", value: valueExpectations{scalar: "1"}},
+			},
+		},
+		{
+			name: "Object/ListArgument/Variable",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `query($myList: [Boolean]) {
+					listArgument(truths: $myList)
+				}`,
+				Variables: map[string]Input{
+					"myList": ListInput([]Input{
+						ScalarInput("true"),
+						ScalarInput("false"),
+						ScalarInput("true"),
+					}),
+				},
+			},
+			want: []fieldExpectations{
+				{key: "listArgument", value: valueExpectations{scalar: "101"}},
+			},
+		},
+		{
+			name: "Object/ListArgument/Variable/Null",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `query($myList: [Boolean]) {
+					listArgument(truths: $myList)
+				}`,
+				Variables: map[string]Input{
+					"myList": {},
+				},
+			},
+			want: []fieldExpectations{
+				{key: "listArgument", value: valueExpectations{scalar: ""}},
+			},
+		},
+		{
+			name: "Object/ListArgument/Variable/Scalar",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `query($myList: [Boolean]) {
+					listArgument(truths: $myList)
+				}`,
+				Variables: map[string]Input{
+					"myList": ScalarInput("true"),
+				},
+			},
+			want: []fieldExpectations{
+				{key: "listArgument", value: valueExpectations{scalar: "1"}},
+			},
+		},
+		{
 			name: "Object/InputObjectArgument",
 			queryObject: func(e errorfer) interface{} {
 				return new(testQueryStruct)
@@ -764,6 +863,22 @@ func (q *testQueryStruct) ErrorMethod() (string, error) {
 	return "xyzzy", xerrors.New("I have failed")
 }
 
+func (q *testQueryStruct) ListArgument(args map[string]Value) string {
+	truths := args["truths"]
+	sb := new(strings.Builder)
+	for i := 0; i < truths.Len(); i++ {
+		t := truths.At(i)
+		if t.IsNull() {
+			sb.WriteByte('N')
+		} else if t.Boolean() {
+			sb.WriteByte('1')
+		} else {
+			sb.WriteByte('0')
+		}
+	}
+	return sb.String()
+}
+
 func (q *testQueryStruct) InputObjectArgument(args map[string]Value) string {
 	complex := args["complex"]
 	if complex.IsNull() {
@@ -799,9 +914,9 @@ func (expect *valueExpectations) check(e errorfer, v Value) {
 		if v.IsNull() {
 			return
 		}
-		if v.Len() != len(expect.object) {
+		if v.NumFields() != len(expect.object) {
 			var gotKeys, wantKeys []string
-			for i := 0; i < v.Len(); i++ {
+			for i := 0; i < v.NumFields(); i++ {
 				gotKeys = append(gotKeys, v.Field(i).Key)
 			}
 			for _, f := range expect.object {

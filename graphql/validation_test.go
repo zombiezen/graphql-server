@@ -487,6 +487,15 @@ func TestValidateRequest(t *testing.T) {
 			wantErrors: nil,
 		},
 		{
+			name: "Values/Type/Valid/ElementToList",
+			request: `{
+				arguments {
+					booleanListArgField(booleanListArg: false)
+				}
+			}`,
+			wantErrors: nil,
+		},
+		{
 			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-3a7c1
 			name: "Values/Type/StringToInt",
 			request: `

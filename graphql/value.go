@@ -142,24 +142,6 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 	switch {
 	case inputValue.Null != nil:
 		return Value{typ: typ}, nil
-	case inputValue.Scalar != nil:
-		return Value{
-			typ: typ,
-			val: inputValue.Scalar.Value(),
-		}, nil
-	case inputValue.InputObject != nil:
-		val := make(map[string]Value)
-		var errs []error
-		for _, field := range inputValue.InputObject.Fields {
-			fieldName := field.Name.Value
-			fieldType := typ.input.fields[fieldName].typ()
-			var fieldErrs []error
-			val[fieldName], fieldErrs = coerceInputValue(source, variables, fieldType, field.Value)
-			for _, err := range fieldErrs {
-				errs = append(errs, xerrors.Errorf("input field %s: %w", fieldName, err))
-			}
-		}
-		return Value{typ: typ, val: val}, errs
 	case inputValue.VariableRef != nil:
 		name := inputValue.VariableRef.Name.Value
 		v := variables[name]
@@ -175,6 +157,48 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 			typ: typ,
 			val: v.val,
 		}, nil
+	case typ.isScalar():
+		return Value{
+			typ: typ,
+			val: inputValue.Scalar.Value(),
+		}, nil
+	case typ.isList():
+		if inputValue.List == nil {
+			// Attempt to coerce as single-element list.
+			// Yes, I'm just as surprised as you are at this behavior,
+			// see https://graphql.github.io/graphql-spec/June2018/#sec-Type-System.List
+			value, errs := coerceInputValue(source, variables, typ.listElem, inputValue)
+			if len(errs) > 0 {
+				return Value{typ: typ}, errs
+			}
+			return Value{
+				typ: typ,
+				val: []Value{value},
+			}, nil
+		}
+		val := make([]Value, 0, len(inputValue.List.Values))
+		var errs []error
+		for i, elem := range inputValue.List.Values {
+			elemValue, elemErrs := coerceInputValue(source, variables, typ.listElem, elem)
+			val = append(val, elemValue)
+			for _, err := range elemErrs {
+				errs = append(errs, xerrors.Errorf("list[%d]: %w", i, err))
+			}
+		}
+		return Value{typ: typ, val: val}, errs
+	case typ.isInputObject():
+		val := make(map[string]Value)
+		var errs []error
+		for _, field := range inputValue.InputObject.Fields {
+			fieldName := field.Name.Value
+			fieldType := typ.input.fields[fieldName].typ()
+			var fieldErrs []error
+			val[fieldName], fieldErrs = coerceInputValue(source, variables, fieldType, field.Value)
+			for _, err := range fieldErrs {
+				errs = append(errs, xerrors.Errorf("input field %s: %w", fieldName, err))
+			}
+		}
+		return Value{typ: typ, val: val}, errs
 	default:
 		panic("unhandled input type")
 	}
@@ -409,23 +433,38 @@ func (v Value) Scalar() string {
 	return s
 }
 
-// Len returns the number of elements or fields in v. Len panics if v is not a
-// list, object, or input object.
+// Len returns the number of elements in v. Len panics if v is not a list or null.
 func (v Value) Len() int {
+	if v.val == nil {
+		return 0
+	}
+	return len(v.val.([]Value))
+}
+
+// At returns v's i'th element. At panics if v is not a list or i is not in the
+// range [0, v.Len()).
+func (v Value) At(i int) Value {
+	list := v.val.([]Value)
+	return list[i]
+}
+
+// NumFields returns the number of fields in v. NumFields panics if v is not
+// null, an object, or an input object.
+func (v Value) NumFields() int {
 	switch val := v.val.(type) {
-	case []Value:
-		return len(val)
+	case nil:
+		return 0
 	case []Field:
 		return len(val)
-	case map[string]Value:
+	case map[string]Field:
 		return len(val)
 	default:
-		panic(fmt.Sprintf("invalid value for Len(): %T", v.val))
+		panic(fmt.Sprintf("invalid value for NumFields: %T", v.val))
 	}
 }
 
 // Field returns v's i'th field. Field panics if v is not an object or i is not
-// in the range [0, Len()).
+// in the range [0, v.NumFields()).
 func (v Value) Field(i int) Field {
 	fields := v.val.([]Field)
 	return fields[i]

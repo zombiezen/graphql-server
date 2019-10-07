@@ -430,7 +430,10 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 		}
 	case typ.isList():
 		if val.List == nil {
-			return []error{genericErr}
+			// Attempt to validate as single-element list.
+			// Yes, I'm just as surprised as you are at this behavior,
+			// see https://graphql.github.io/graphql-spec/June2018/#sec-Type-System.List
+			return validateValue(source, variables, typ.listElem, false, val)
 		}
 		var errs []error
 		for i, elem := range val.List.Values {

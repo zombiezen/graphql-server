@@ -166,24 +166,49 @@ func coerceInput(typ *gqlType, input Input) (Value, []error) {
 
 	if input.isNull() {
 		if !typ.isNullable() {
-			return Value{}, []error{xerrors.Errorf("null not permitted for %v", typ)}
+			return Value{typ: typ}, []error{xerrors.Errorf("null not permitted for %v", typ)}
 		}
-		return Value{}, nil
+		return Value{typ: typ}, nil
 	}
 	switch {
 	case typ.isScalar():
 		scalar, ok := input.val.(string)
 		if !ok {
-			return Value{}, []error{xerrors.Errorf("non-scalar found for %v", typ)}
+			return Value{typ: typ}, []error{xerrors.Errorf("non-scalar found for %v", typ)}
 		}
 		if err := validateScalar(typ, scalar, noAffinity); err != nil {
-			return Value{}, []error{err}
+			return Value{typ: typ}, []error{err}
 		}
 		return Value{typ: typ, val: scalar}, nil
+	case typ.isList():
+		inputList, ok := input.val.([]Input)
+		if !ok {
+			// Attempt to coerce as single-element list.
+			// Yes, I'm just as surprised as you are at this behavior,
+			// see https://graphql.github.io/graphql-spec/June2018/#sec-Type-System.List
+			value, errs := coerceInput(typ.listElem, input)
+			if len(errs) > 0 {
+				return Value{typ: typ}, errs
+			}
+			return Value{
+				typ: typ,
+				val: []Value{value},
+			}, nil
+		}
+		valueList := make([]Value, 0, len(inputList))
+		var errs []error
+		for i, elem := range inputList {
+			elemValue, elemErrs := coerceInput(typ.listElem, elem)
+			valueList = append(valueList, elemValue)
+			for _, err := range elemErrs {
+				errs = append(errs, xerrors.Errorf("list[%d]: %w", i, err))
+			}
+		}
+		return Value{typ: typ, val: valueList}, errs
 	case typ.isInputObject():
 		inputObj, ok := input.val.(map[string]Input)
 		if !ok {
-			return Value{}, []error{xerrors.Errorf("non-object found for %v", typ)}
+			return Value{typ: typ}, []error{xerrors.Errorf("non-object found for %v", typ)}
 		}
 		valueMap := make(map[string]Value)
 		var errs []error
@@ -213,7 +238,7 @@ func coerceInput(typ *gqlType, input Input) (Value, []error) {
 			}
 		}
 		if len(errs) > 0 {
-			return Value{}, errs
+			return Value{typ: typ}, errs
 		}
 		return Value{typ: typ, val: valueMap}, nil
 	default:
