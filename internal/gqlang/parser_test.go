@@ -508,6 +508,104 @@ input ItemInput {
 				},
 			},
 		},
+		{
+			name:  "EmptyListLiteral",
+			input: `{ foo(list: []) }`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Operation: &Operation{
+						Start: 0,
+						Type:  Query,
+						SelectionSet: &SelectionSet{
+							LBrace: 0,
+							Sel: []*Selection{
+								{Field: &Field{
+									Name: &Name{
+										Start: 2,
+										Value: "foo",
+									},
+									Arguments: &Arguments{
+										LParen: 5,
+										Args: []*Argument{
+											{
+												Name: &Name{
+													Start: 6,
+													Value: "list",
+												},
+												Colon: 10,
+												Value: &InputValue{
+													List: &ListValue{
+														LBracket: 12,
+														RBracket: 13,
+													},
+												},
+											},
+										},
+										RParen: 14,
+									},
+								}},
+							},
+							RBrace: 16,
+						},
+					}},
+				},
+			},
+		},
+		{
+			name:  "ListLiteral",
+			input: `{ foo(list: [123, 456]) }`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Operation: &Operation{
+						Start: 0,
+						Type:  Query,
+						SelectionSet: &SelectionSet{
+							LBrace: 0,
+							Sel: []*Selection{
+								{Field: &Field{
+									Name: &Name{
+										Start: 2,
+										Value: "foo",
+									},
+									Arguments: &Arguments{
+										LParen: 5,
+										Args: []*Argument{
+											{
+												Name: &Name{
+													Start: 6,
+													Value: "list",
+												},
+												Colon: 10,
+												Value: &InputValue{
+													List: &ListValue{
+														LBracket: 12,
+														Values: []*InputValue{
+															{Scalar: &ScalarValue{
+																Start: 13,
+																Type:  IntScalar,
+																Raw:   "123",
+															}},
+															{Scalar: &ScalarValue{
+																Start: 18,
+																Type:  IntScalar,
+																Raw:   "456",
+															}},
+														},
+														RBracket: 21,
+													},
+												},
+											},
+										},
+										RParen: 22,
+									},
+								}},
+							},
+							RBrace: 24,
+						},
+					}},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

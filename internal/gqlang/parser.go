@@ -371,6 +371,9 @@ func (p *parser) value(isConst bool) (*InputValue, []error) {
 			val.Scalar.Type = EnumScalar
 		}
 		return val, nil
+	case lbracket:
+		lval, errs := p.listValue(isConst)
+		return &InputValue{List: lval}, errs
 	case lbrace:
 		ioval, errs := p.objectValue(isConst)
 		return &InputValue{InputObject: ioval}, errs
@@ -426,6 +429,20 @@ func (p *parser) variable() (*Variable, error) {
 		Dollar: tok.start,
 		Name:   varName,
 	}, nil
+}
+
+func (p *parser) listValue(isConst bool) (*ListValue, []error) {
+	lval := new(ListValue)
+	var errs []error
+	lval.LBracket, lval.RBracket, errs = p.group(lbracket, rbracket, "list value", func() []error {
+		elem, elemErrs := p.value(isConst)
+		lval.Values = append(lval.Values, elem)
+		return elemErrs
+	})
+	if lval.LBracket == -1 {
+		return nil, errs
+	}
+	return lval, errs
 }
 
 func (p *parser) objectValue(isConst bool) (*InputObjectValue, []error) {

@@ -177,6 +177,7 @@ type InputValue struct {
 	Null        *Name
 	Scalar      *ScalarValue
 	VariableRef *Variable
+	List        *ListValue
 	InputObject *InputObjectValue
 }
 
@@ -191,6 +192,8 @@ func (ival *InputValue) Start() Pos {
 		return ival.Scalar.Start
 	case ival.VariableRef != nil:
 		return ival.VariableRef.Dollar
+	case ival.List != nil:
+		return ival.List.LBracket
 	case ival.InputObject != nil:
 		return ival.InputObject.LBrace
 	default:
@@ -209,6 +212,8 @@ func (ival *InputValue) String() string {
 		return ival.Scalar.String()
 	case ival.VariableRef != nil:
 		return ival.VariableRef.String()
+	case ival.List != nil:
+		return ival.List.String()
 	case ival.InputObject != nil:
 		return ival.InputObject.String()
 	default:
@@ -374,6 +379,27 @@ func (v *Variable) String() string {
 		return ""
 	}
 	return "$" + v.Name.String()
+}
+
+// A ListValue is an ordered list literal.
+type ListValue struct {
+	LBracket Pos
+	Values   []*InputValue
+	RBracket Pos
+}
+
+// String formats the list in GraphQL syntax.
+func (lval *ListValue) String() string {
+	buf := new(strings.Builder)
+	buf.WriteByte('[')
+	for i, v := range lval.Values {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteString(v.String())
+	}
+	buf.WriteByte(']')
+	return buf.String()
 }
 
 // An InputObjectValue is an unordered list of keyed input values.
