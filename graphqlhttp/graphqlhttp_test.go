@@ -59,17 +59,26 @@ func TestParse(t *testing.T) {
 			name:   "GET/AllFields",
 			method: http.MethodGet,
 			query: url.Values{
-				"query":         {"{me{name}}"},
+				"query":         {"query Baz{me{name}}"},
 				"variables":     {`{"foo":"bar"}`},
 				"operationName": {"Baz"},
 			},
 			want: graphql.Request{
-				Query:         "{me{name}}",
+				Query:         "query Baz{me{name}}",
 				OperationName: "Baz",
 				Variables: map[string]graphql.Input{
 					"foo": graphql.ScalarInput("bar"),
 				},
 			},
+		},
+		{
+			name:   "GET/Mutation",
+			method: http.MethodGet,
+			query: url.Values{
+				"query":     {"mutation {me{name}}"},
+				"variables": {`{"foo":"bar"}`},
+			},
+			wantErrStatus: http.StatusBadRequest,
 		},
 		{
 			name:        "POST/JustQuery",

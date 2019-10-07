@@ -149,7 +149,7 @@ func findOperation(doc *gqlang.Document, operationName string) *gqlang.Operation
 		if defn.Operation == nil {
 			continue
 		}
-		if operationName == "" || operationName == defn.Operation.Name.Value {
+		if operationName == "" || (defn.Operation.Name != nil && operationName == defn.Operation.Name.Value) {
 			return defn.Operation
 		}
 	}
@@ -172,6 +172,9 @@ func (r Request) IsQuery() bool {
 		return false
 	}
 	op := findOperation(doc, r.OperationName)
+	if op == nil {
+		return false
+	}
 	return op.Type == gqlang.Query
 }
 
