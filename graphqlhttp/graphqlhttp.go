@@ -30,6 +30,30 @@ import (
 	"zombiezen.com/go/graphql-server/graphql"
 )
 
+// Handler serves GraphQL HTTP requests by executing them on its server.
+type Handler struct {
+	server *graphql.Server
+}
+
+// NewHandler returns a new handler that sends requests to the given server.
+func NewHandler(server *graphql.Server) *Handler {
+	return &Handler{server: server}
+}
+
+// ServeHTTP executes a GraphQL request.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	gqlRequest, err := Parse(r)
+	if err != nil {
+		code := StatusCode(err)
+		if code == http.StatusMethodNotAllowed {
+			w.Header().Set("Allow", "GET, HEAD, POST")
+		}
+		http.Error(w, err.Error(), code)
+	}
+	gqlResponse := h.server.Execute(r.Context(), gqlRequest)
+	WriteResponse(w, gqlResponse)
+}
+
 // Parse parses a GraphQL HTTP request. If an error is returned, StatusCode
 // will return the proper HTTP status code to use.
 //
@@ -52,6 +76,12 @@ func Parse(r *http.Request) (graphql.Request, error) {
 			}
 		}
 		request.OperationName = r.FormValue("operationName")
+		if !request.IsQuery() {
+			return graphql.Request{}, &httpError{
+				msg:  "parse graphql request: GET requests must be queries",
+				code: http.StatusBadRequest,
+			}
+		}
 	case http.MethodPost:
 		rawContentType := r.Header.Get("Content-Type")
 		contentType, _, err := mime.ParseMediaType(rawContentType)
@@ -129,8 +159,8 @@ func StatusCode(err error) int {
 }
 
 // WriteResponse writes a GraphQL result as an HTTP response.
-func WriteResponse(w http.ResponseWriter, result graphql.Response) {
-	payload, err := json.Marshal(result)
+func WriteResponse(w http.ResponseWriter, response graphql.Response) {
+	payload, err := json.Marshal(response)
 	if err != nil {
 		http.Error(w, "GraphQL marshal error", http.StatusInternalServerError)
 		return

@@ -163,6 +163,18 @@ type Request struct {
 	Variables     map[string]Input `json:"variables,omitempty"`
 }
 
+// IsQuery reports whether r represents a query. This may return incorrect
+// results with invalid queries.
+func (r Request) IsQuery() bool {
+	// TODO(soon): Avoid double-parse on Execute.
+	doc, _ := gqlang.Parse(r.Query)
+	if doc == nil {
+		return false
+	}
+	op := findOperation(doc, r.OperationName)
+	return op.Type == gqlang.Query
+}
+
 // Response holds the output of a GraphQL operation.
 type Response struct {
 	Data   Value            `json:"data"`
