@@ -469,6 +469,24 @@ func TestValidateRequest(t *testing.T) {
 			wantErrors: nil,
 		},
 		{
+			name: "Values/Type/Valid/EmptyList",
+			request: `{
+				arguments {
+					booleanListArgField(booleanListArg: [])
+				}
+			}`,
+			wantErrors: nil,
+		},
+		{
+			name: "Values/Type/Valid/List",
+			request: `{
+				arguments {
+					booleanListArgField(booleanListArg: [false, true])
+				}
+			}`,
+			wantErrors: nil,
+		},
+		{
 			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-3a7c1
 			name: "Values/Type/StringToInt",
 			request: `
@@ -485,6 +503,34 @@ func TestValidateRequest(t *testing.T) {
 					Path: []PathSegment{
 						{Field: "arguments"},
 						{Field: "intArgField"},
+					},
+				},
+			},
+		},
+		{
+			name: "Values/Type/WrongListTypes",
+			request: `{
+				arguments {
+					booleanListArgField(booleanListArg: ["foo", 123])
+				}
+			}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 78},
+					},
+					Path: []PathSegment{
+						{Field: "arguments"},
+						{Field: "booleanListArgField"},
+					},
+				},
+				{
+					Locations: []Location{
+						{3, 85},
+					},
+					Path: []PathSegment{
+						{Field: "arguments"},
+						{Field: "booleanListArgField"},
 					},
 				},
 			},

@@ -428,6 +428,18 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 				Locations: genericErr.Locations,
 			}}
 		}
+	case typ.isList():
+		if val.List == nil {
+			return []error{genericErr}
+		}
+		var errs []error
+		for i, elem := range val.List.Values {
+			elemErrs := validateValue(source, variables, typ.listElem, false, elem)
+			for _, err := range elemErrs {
+				errs = append(errs, xerrors.Errorf("list[%d]: %w", i, err))
+			}
+		}
+		return errs
 	case typ.isInputObject():
 		if val.InputObject == nil {
 			return []error{genericErr}
