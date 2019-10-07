@@ -88,7 +88,7 @@ func valueFromGo(ctx context.Context, variables map[string]Value, goValue reflec
 		gqlFields := make([]Field, 0, len(sel.fields))
 		var errs []error
 		for _, f := range sel.fields {
-			fval, ferrs := readField(ctx, variables, goValue, f, typ.obj.fields[f.name].typ)
+			fval, ferrs := readField(ctx, variables, goValue, f, typ.obj.fields[f.name])
 			gqlFields = append(gqlFields, Field{Key: f.key, Value: fval})
 			errs = append(errs, ferrs...)
 		}
@@ -180,35 +180,35 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 	}
 }
 
-func readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, f *SelectedField, typ *gqlType) (Value, []error) {
+func readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, f *SelectedField, defn objectTypeField) (Value, []error) {
 	// TODO(soon): Search over all fields and/or methods to find case-insensitive match.
 	goName := graphQLToGoFieldName(f.name)
 
-	if len(f.args) == 0 && goValue.Kind() == reflect.Struct {
+	if len(defn.args) == 0 && goValue.Kind() == reflect.Struct {
 		if fieldValue := goValue.FieldByName(goName); fieldValue.IsValid() {
-			v, errs := valueFromGo(ctx, variables, fieldValue, typ, f.sub)
+			v, errs := valueFromGo(ctx, variables, fieldValue, defn.typ, f.sub)
 			if len(errs) > 0 {
 				for i := range errs {
 					errs[i] = wrapFieldError(f.key, f.loc, errs[i])
 				}
-				return Value{typ: typ}, errs
+				return Value{typ: defn.typ}, errs
 			}
 			return v, nil
 		}
 	}
 	method := findFieldMethod(goValue, f.name)
 	if !method.IsValid() {
-		return Value{typ: typ}, []error{&ResponseError{
+		return Value{typ: defn.typ}, []error{&ResponseError{
 			Message:   fmt.Sprintf("no such method or field %q on %v", f.name, goValue.Type()),
 			Locations: []Location{f.loc},
 			Path:      []PathSegment{{Field: f.key}},
 		}}
 	}
-	methodResult, err := callFieldMethod(ctx, method, f.args, f.sub, typ.selectionSetType() != nil)
+	methodResult, err := callFieldMethod(ctx, method, f.args, f.sub, defn.typ.selectionSetType() != nil)
 	if err != nil {
-		return Value{typ: typ}, []error{wrapFieldError(f.key, f.loc, err)}
+		return Value{typ: defn.typ}, []error{wrapFieldError(f.key, f.loc, err)}
 	}
-	ret, errs := valueFromGo(ctx, variables, methodResult, typ, f.sub)
+	ret, errs := valueFromGo(ctx, variables, methodResult, defn.typ, f.sub)
 	if len(errs) > 0 {
 		for i := range errs {
 			errs[i] = wrapFieldError(f.key, f.loc, errs[i])
