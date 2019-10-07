@@ -91,6 +91,35 @@ func (in *Input) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// GoValue dumps the input into one of the following Go types:
+//
+//   - nil interface{} for null
+//   - string for scalars
+//   - []interface{} for lists
+//   - map[string]interface{} for objects
+func (in Input) GoValue() interface{} {
+	switch val := in.val.(type) {
+	case nil:
+		return nil
+	case string:
+		return val
+	case []Input:
+		goVal := make([]interface{}, len(val))
+		for i, vv := range val {
+			goVal[i] = vv.GoValue()
+		}
+		return goVal
+	case map[string]Input:
+		goVal := make(map[string]interface{}, len(val))
+		for k, vv := range val {
+			goVal[k] = vv.GoValue()
+		}
+		return goVal
+	default:
+		panic("unknown type in Input.val")
+	}
+}
+
 // coerceVariableValues converts inputs into values.
 // The procedure is specified in https://graphql.github.io/graphql-spec/June2018/#CoerceVariableValues()
 func coerceVariableValues(source string, typeMap map[string]*gqlType, vars map[string]Input, defns *gqlang.VariableDefinitions) (map[string]Value, []error) {
