@@ -33,6 +33,7 @@ func TestExecute(t *testing.T) {
 			myBoolean: Boolean
 			myInt: Int
 			myInt32: Int
+			myList: [Int!]!
 
 			niladicNoArgsMethod: String
 			niladicContextOnlyMethod: String
@@ -203,6 +204,40 @@ func TestExecute(t *testing.T) {
 			request: Request{Query: `{ myInt }`},
 			want: []fieldExpectations{
 				{key: "myInt", value: valueExpectations{null: true}},
+			},
+		},
+		{
+			name: "List/Nonempty",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyList: []int32{123, 456, 789}}
+			},
+			request: Request{Query: `{ myList }`},
+			want: []fieldExpectations{
+				{key: "myList", value: valueExpectations{list: []valueExpectations{
+					{scalar: "123"},
+					{scalar: "456"},
+					{scalar: "789"},
+				}}},
+			},
+		},
+		{
+			name: "List/Empty",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyList: []int32{}}
+			},
+			request: Request{Query: `{ myList }`},
+			want: []fieldExpectations{
+				{key: "myList", value: valueExpectations{list: []valueExpectations{}}},
+			},
+		},
+		{
+			name: "List/Nil",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyList: nil}
+			},
+			request: Request{Query: `{ myList }`},
+			want: []fieldExpectations{
+				{key: "myList", value: valueExpectations{list: []valueExpectations{}}},
 			},
 		},
 		{
@@ -762,6 +797,7 @@ type testQueryStruct struct {
 	MyBoolean *bool
 	MyInt     *int
 	MyInt32   *int32
+	MyList    []int32
 
 	e errorfer
 }
@@ -895,6 +931,7 @@ func newInt32(i int32) *int32    { return &i }
 type valueExpectations struct {
 	null   bool
 	scalar string
+	list   []valueExpectations
 	object []fieldExpectations
 }
 
@@ -909,6 +946,18 @@ func (expect *valueExpectations) check(e errorfer, v Value) {
 	}
 	if gotScalar := v.Scalar(); gotScalar != expect.scalar {
 		e.Errorf("v.Scalar() = %q; want %q", gotScalar, expect.scalar)
+	}
+	if expect.list != nil {
+		if v.IsNull() {
+			return
+		}
+		if v.Len() != len(expect.list) {
+			e.Errorf("len(v) == %d; want %d", v.Len(), len(expect.list))
+		}
+		for i := 0; i < v.Len() && i < len(expect.list); i++ {
+			// TODO(maybe): Prepend info about which list item failed on error.
+			expect.list[i].check(e, v.At(i))
+		}
 	}
 	if len(expect.object) > 0 {
 		if v.IsNull() {
