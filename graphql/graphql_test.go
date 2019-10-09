@@ -17,7 +17,10 @@
 package graphql
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
@@ -1063,4 +1066,172 @@ func (expect *valueExpectations) check(e errorfer, v Value) {
 
 type errorfer interface {
 	Errorf(format string, arguments ...interface{})
+}
+
+func TestResponseMarshalJSON(t *testing.T) {
+	tests := []struct {
+		name string
+		v    Response
+		want []json.Token
+	}{
+		{
+			name: "DataOnly",
+			v: Response{
+				Data: testObjectValue(),
+			},
+			want: []json.Token{
+				json.Delim('{'),
+				"data",
+				json.Delim('{'),
+				"myInt", json.Number("42"),
+				"myString", "xyzzy",
+				json.Delim('}'),
+				json.Delim('}'),
+			},
+		},
+		{
+			name: "ErrorsOnly",
+			v: Response{
+				Errors: []*ResponseError{
+					{
+						Message: "Failure",
+						Locations: []Location{
+							{Line: 12, Column: 34},
+						},
+						Path: []PathSegment{
+							{Field: "myList"},
+							{ListIndex: 33},
+							{Field: "id"},
+						},
+					},
+				},
+			},
+			want: []json.Token{
+				json.Delim('{'),
+				"errors",
+				json.Delim('['),
+				json.Delim('{'),
+				"message", "Failure",
+
+				"locations",
+				json.Delim('['),
+				json.Delim('{'),
+				"line", json.Number("12"),
+				"column", json.Number("34"),
+				json.Delim('}'),
+				json.Delim(']'),
+
+				"path",
+				json.Delim('['),
+				"myList",
+				json.Number("33"),
+				"id",
+				json.Delim(']'),
+
+				json.Delim('}'),
+				json.Delim(']'),
+				json.Delim('}'),
+			},
+		},
+		{
+			name: "ErrorJustMessage",
+			v: Response{
+				Errors: []*ResponseError{
+					{
+						Message: "Failure",
+					},
+				},
+			},
+			want: []json.Token{
+				json.Delim('{'),
+				"errors",
+				json.Delim('['),
+				json.Delim('{'),
+				"message", "Failure",
+				json.Delim('}'),
+				json.Delim(']'),
+				json.Delim('}'),
+			},
+		},
+		{
+			name: "DataAndErrors",
+			v: Response{
+				Data: testObjectValue(),
+				Errors: []*ResponseError{
+					{
+						Message: "Failure",
+					},
+				},
+			},
+			want: []json.Token{
+				json.Delim('{'),
+
+				// Errors should come first, as per recommendation in
+				// https://graphql.github.io/graphql-spec/June2018/#sec-Response-Format
+				"errors",
+				json.Delim('['),
+				json.Delim('{'),
+				"message", "Failure",
+				json.Delim('}'),
+				json.Delim(']'),
+
+				"data",
+				json.Delim('{'),
+				"myInt", json.Number("42"),
+				"myString", "xyzzy",
+				json.Delim('}'),
+
+				json.Delim('}'),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data, err := json.Marshal(test.v)
+			if err != nil {
+				t.Fatal("Marshal:", err)
+			}
+			var got []json.Token
+			dec := json.NewDecoder(bytes.NewReader(data))
+			dec.UseNumber()
+			for {
+				tok, err := dec.Token()
+				if xerrors.Is(err, io.EOF) {
+					break
+				}
+				if err != nil {
+					t.Fatal("Token:", err)
+				}
+				got = append(got, tok)
+			}
+			diff := cmp.Diff(test.want, got, cmpopts.EquateEmpty())
+			if diff != "" {
+				t.Errorf("JSON tokens (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func testObjectValue() Value {
+	schema, err := ParseSchema(`
+		type Query {
+			myString: String
+			myInt: Int
+		}
+	`)
+	if err != nil {
+		panic(err)
+	}
+	queryObject := &testQueryStruct{
+		MyString: newString("xyzzy"),
+		MyInt:    newInt(42),
+	}
+	srv, err := NewServer(schema, queryObject, nil)
+	if err != nil {
+		panic(err)
+	}
+	response := srv.Execute(context.Background(), Request{
+		Query: `{ myInt, myString }`,
+	})
+	return response.Data
 }

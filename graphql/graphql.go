@@ -184,6 +184,33 @@ type Response struct {
 	Errors []*ResponseError `json:"errors,omitempty"`
 }
 
+// MarshalJSON converts the response to JSON format.
+func (resp Response) MarshalJSON() ([]byte, error) {
+	var buf []byte
+	buf = append(buf, '{')
+	if len(resp.Errors) > 0 {
+		buf = append(buf, `"errors":`...)
+		errorsData, err := json.Marshal(resp.Errors)
+		if err != nil {
+			return buf, xerrors.Errorf("marshal response: %w", err)
+		}
+		buf = append(buf, errorsData...)
+		if !resp.Data.IsNull() {
+			buf = append(buf, ',')
+		}
+	}
+	if !resp.Data.IsNull() {
+		buf = append(buf, `"data":`...)
+		data, err := json.Marshal(resp.Data)
+		if err != nil {
+			return buf, xerrors.Errorf("marshal response: %w", err)
+		}
+		buf = append(buf, data...)
+	}
+	buf = append(buf, '}')
+	return buf, nil
+}
+
 // ResponseError describes an error that occurred during the processing of a
 // GraphQL operation.
 type ResponseError struct {
