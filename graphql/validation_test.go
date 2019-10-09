@@ -37,7 +37,9 @@ func TestValidateRequest(t *testing.T) {
 			booleanList(booleanListArg: [Boolean!]): Boolean
 		}
 
-		scalar DogCommand
+		enum DogCommand { SIT, DOWN, HEEL }
+
+		scalar CustomScalar
 
 		type Dog {
 			name: String!
@@ -64,6 +66,7 @@ func TestValidateRequest(t *testing.T) {
 			nonNullBooleanArgField(nonNullBooleanArg: Boolean!): Boolean!
 			booleanListArgField(booleanListArg: [Boolean]!): [Boolean]
 			optionalNonNullBooleanArgField(optionalBooleanArg: Boolean! = false): Boolean!
+			customScalar(arg: CustomScalar): CustomScalar
 		}
 
 		input ComplexInput { name: String!, owner: String }`
@@ -515,6 +518,62 @@ func TestValidateRequest(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name: "Values/Type/BadEnumName",
+			request: `{
+				dog {
+					doesKnowCommand(dogCommand: THINK)
+				}
+			}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 69},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
+			name: "Values/Type/EnumToCustomScalar",
+			request: `{
+				arguments {
+					customScalar(arg: WOOF)
+				}
+			}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 59},
+					},
+					Path: []PathSegment{
+						{Field: "arguments"},
+						{Field: "customScalar"},
+					},
+				},
+			},
+		},
+		{
+			name: "Values/Type/StringToCustomScalar",
+			request: `{
+				arguments {
+					customScalar(arg: "woof")
+				}
+			}`,
+			wantErrors: nil,
+		},
+		{
+			name: "Values/Type/IntToCustomScalar",
+			request: `{
+				arguments {
+					customScalar(arg: 123)
+				}
+			}`,
+			wantErrors: nil,
 		},
 		{
 			name: "Values/Type/WrongListTypes",

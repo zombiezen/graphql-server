@@ -418,13 +418,23 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 	}
 	switch {
 	case typ.isScalar():
-		if val.Scalar == nil {
+		if val.Scalar == nil || val.Scalar.Type == gqlang.EnumScalar {
 			return []error{genericErr}
 		}
 		err := validateScalar(typ, val.Scalar.Value(), scalarTypeAffinity(val.Scalar.Type))
 		if err != nil {
 			return []error{&ResponseError{
 				Message:   err.Error(),
+				Locations: genericErr.Locations,
+			}}
+		}
+	case typ.isEnum():
+		if val.Scalar == nil || val.Scalar.Type != gqlang.EnumScalar {
+			return []error{genericErr}
+		}
+		if got := val.Scalar.Value(); !typ.enum.has(got) {
+			return []error{&ResponseError{
+				Message:   fmt.Sprintf("%v is not a valid value for %v", got, typ),
 				Locations: genericErr.Locations,
 			}}
 		}
@@ -570,7 +580,6 @@ const (
 	noAffinity      = scalarAffinity(0)
 	stringAffinity  = scalarAffinity(1 + gqlang.StringScalar)
 	booleanAffinity = scalarAffinity(1 + gqlang.BooleanScalar)
-	enumAffinity    = scalarAffinity(1 + gqlang.EnumScalar)
 	intAffinity     = scalarAffinity(1 + gqlang.IntScalar)
 	floatAffinity   = scalarAffinity(1 + gqlang.FloatScalar)
 )

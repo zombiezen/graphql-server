@@ -24,6 +24,7 @@ import "sync"
 // different schemas are never equal.
 type gqlType struct {
 	scalar   string
+	enum     *enumType
 	listElem *gqlType
 	obj      *objectType
 	input    *inputObjectType
@@ -35,6 +36,16 @@ type gqlType struct {
 
 	listInit sync.Once
 	listOf_  *gqlType
+}
+
+type enumType struct {
+	name    string
+	symbols map[string]struct{}
+}
+
+func (enum *enumType) has(sym string) bool {
+	_, found := enum.symbols[sym]
+	return found
 }
 
 type objectType struct {
@@ -84,6 +95,14 @@ func newScalarType(name string) *gqlType {
 	return nullable
 }
 
+func newEnumType(info *enumType) *gqlType {
+	nullable := &gqlType{enum: info}
+	nonNullable := &gqlType{enum: info, nonNull: true}
+	nullable.nullVariant = nonNullable
+	nonNullable.nullVariant = nullable
+	return nullable
+}
+
 func newObjectType(info *objectType) *gqlType {
 	nullable := &gqlType{obj: info}
 	nonNullable := &gqlType{obj: info, nonNull: true}
@@ -122,6 +141,8 @@ func (typ *gqlType) String() string {
 		return "<nil>"
 	case typ.isScalar():
 		return typ.scalar + suffix
+	case typ.isEnum():
+		return typ.enum.name + suffix
 	case typ.isList():
 		return "[" + typ.listElem.String() + "]" + suffix
 	case typ.isObject():
@@ -156,6 +177,10 @@ func (typ *gqlType) isScalar() bool {
 	return typ.scalar != ""
 }
 
+func (typ *gqlType) isEnum() bool {
+	return typ.enum != nil
+}
+
 func (typ *gqlType) isList() bool {
 	return typ.listElem != nil
 }
@@ -174,8 +199,7 @@ func (typ *gqlType) isInputType() bool {
 	for typ.isList() {
 		typ = typ.listElem
 	}
-	// TODO(soon): Enum.
-	return typ.isScalar() || typ.isInputObject()
+	return typ.isScalar() || typ.isEnum() || typ.isInputObject()
 }
 
 // isOutputType reports whether typ can be used as an output.
@@ -184,8 +208,8 @@ func (typ *gqlType) isOutputType() bool {
 	for typ.isList() {
 		typ = typ.listElem
 	}
-	// TODO(soon): Interface, union, or enum.
-	return typ.isScalar() || typ.isObject()
+	// TODO(soon): Interface or union.
+	return typ.isScalar() || typ.isEnum() || typ.isObject()
 }
 
 func (typ *gqlType) selectionSetType() *gqlType {

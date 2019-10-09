@@ -180,6 +180,15 @@ func coerceInput(typ *gqlType, input Input) (Value, []error) {
 			return Value{typ: typ}, []error{err}
 		}
 		return Value{typ: typ, val: scalar}, nil
+	case typ.isEnum():
+		scalar, ok := input.val.(string)
+		if !ok {
+			return Value{typ: typ}, []error{xerrors.Errorf("non-scalar found for %v", typ)}
+		}
+		if !typ.enum.has(scalar) {
+			return Value{typ: typ}, []error{xerrors.Errorf("%q is not a valid value for %v", typ)}
+		}
+		return Value{typ: typ, val: scalar}, nil
 	case typ.isList():
 		inputList, ok := input.val.([]Input)
 		if !ok {

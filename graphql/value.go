@@ -157,7 +157,7 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 			typ: typ,
 			val: v.val,
 		}, nil
-	case typ.isScalar():
+	case typ.isScalar() || typ.isEnum():
 		return Value{
 			typ: typ,
 			val: inputValue.Scalar.Value(),

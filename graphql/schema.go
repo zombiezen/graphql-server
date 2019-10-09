@@ -103,6 +103,19 @@ func buildTypeMap(source string, doc *gqlang.Document) (map[string]*gqlType, err
 		switch {
 		case t.Scalar != nil:
 			typeMap[name.Value] = newScalarType(name.Value)
+		case t.Enum != nil:
+			info := &enumType{
+				name:    name.Value,
+				symbols: make(map[string]struct{}),
+			}
+			for _, v := range defn.Type.Enum.Values.Values {
+				sym := v.Value.Value
+				if info.has(sym) {
+					return nil, xerrors.Errorf("%v: multiple enum values with name %q", sym)
+				}
+				info.symbols[sym] = struct{}{}
+			}
+			typeMap[name.Value] = newEnumType(info)
 		case t.Object != nil:
 			typeMap[name.Value] = newObjectType(&objectType{
 				name:   name.Value,

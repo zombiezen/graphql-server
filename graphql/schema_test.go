@@ -132,6 +132,50 @@ func TestParseSchema(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-36555
+			name: "EnumType",
+			source: `
+				type Query { adjacent(direction: Direction! = NORTH): ID }
+
+				enum Direction {
+					NORTH
+					EAST
+					SOUTH
+					WEST
+				}
+			`,
+			wantErr: false,
+		},
+		{
+			name: "EnumType/WrongName",
+			source: `
+				type Query { adjacent(direction: Direction! = WEAST): ID }
+
+				enum Direction {
+					NORTH
+					EAST
+					SOUTH
+					WEST
+				}
+			`,
+			wantErr: true,
+		},
+		{
+			name: "EnumType/DuplicateName",
+			source: `
+				type Query { adjacent(direction: Direction!): ID }
+
+				enum Direction {
+					NORTH
+					NORTH
+					EAST
+					SOUTH
+					WEST
+				}
+			`,
+			wantErr: true,
+		},
+		{
 			name: "InputObject",
 			source: `
 				type Query {
