@@ -58,7 +58,7 @@ func valueFromGo(ctx context.Context, variables map[string]Value, goValue reflec
 		return Value{typ: typ, val: nil}, nil
 	}
 	switch {
-	case typ.isScalar():
+	case typ.isScalar() || typ.isEnum():
 		v, err := scalarFromGo(goValue, typ)
 		if err != nil {
 			return Value{typ: typ}, []error{err}
@@ -355,9 +355,13 @@ func scalarFromGo(goValue reflect.Value, typ *gqlType) (Value, error) {
 			return Value{typ: typ, val: goIface.String()}, nil
 		}
 		if goValue.Kind() != reflect.String {
-			return Value{}, xerrors.Errorf("cannot convert %v to %v", goValue.Type(), typ)
+			return Value{typ: typ}, xerrors.Errorf("cannot convert %v to %v", goValue.Type(), typ)
 		}
-		return Value{typ: typ, val: goValue.String()}, nil
+		val := goValue.String()
+		if typ.isEnum() && !typ.enum.has(val) {
+			return Value{typ: typ}, xerrors.Errorf("%q is not a valid value for %v", val, typ)
+		}
+		return Value{typ: typ, val: val}, nil
 	}
 }
 

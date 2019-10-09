@@ -34,6 +34,7 @@ func TestExecute(t *testing.T) {
 			myInt: Int
 			myInt32: Int
 			myList: [Int!]!
+			myDirection: Direction
 
 			niladicNoArgsMethod: String
 			niladicContextOnlyMethod: String
@@ -47,12 +48,20 @@ func TestExecute(t *testing.T) {
 			argWithDefault(echo: String = "xyzzy"): String
 			requiredArg(echo: String!): String!
 			requiredArgWithDefault(echo: String! = "xyzzy"): String!
+			enumArg(direction: Direction!): String!
 
 			nilErrorMethod: String
 			errorMethod: String
 
 			listArgument(truths: [Boolean]): String
 			inputObjectArgument(complex: Complex): String
+		}
+
+		enum Direction {
+			NORTH
+			SOUTH
+			EAST
+			WEST
 		}
 
 		input Complex {
@@ -204,6 +213,66 @@ func TestExecute(t *testing.T) {
 			request: Request{Query: `{ myInt }`},
 			want: []fieldExpectations{
 				{key: "myInt", value: valueExpectations{null: true}},
+			},
+		},
+		{
+			name: "Enum/Valid",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyDirection: newString("NORTH")}
+			},
+			request: Request{Query: `{ myDirection }`},
+			want: []fieldExpectations{
+				{key: "myDirection", value: valueExpectations{scalar: "NORTH"}},
+			},
+		},
+		{
+			name: "Enum/Invalid",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyDirection: newString("WEAST")}
+			},
+			request: Request{Query: `{ myDirection }`},
+			want: []fieldExpectations{
+				{key: "myDirection", value: valueExpectations{null: true}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{1, 3},
+					},
+					Path: []PathSegment{
+						{Field: "myDirection"},
+					},
+				},
+			},
+		},
+		{
+			name: "Enum/Argument/Valid",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `query($d: Direction!) { enumArg(direction: $d) }`,
+				Variables: map[string]Input{
+					"d": ScalarInput("NORTH"),
+				},
+			},
+			want: []fieldExpectations{
+				{key: "enumArg", value: valueExpectations{scalar: "NORTH"}},
+			},
+		},
+		{
+			name: "Enum/Argument/Invalid",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `query($d: Direction!) { enumArg(direction: $d) }`,
+				Variables: map[string]Input{
+					"d": ScalarInput("WEAST"),
+				},
+			},
+			wantErrors: []*ResponseError{
+				{},
 			},
 		},
 		{
@@ -793,11 +862,12 @@ func TestExecute(t *testing.T) {
 }
 
 type testQueryStruct struct {
-	MyString  *string
-	MyBoolean *bool
-	MyInt     *int
-	MyInt32   *int32
-	MyList    []int32
+	MyString    *string
+	MyBoolean   *bool
+	MyInt       *int
+	MyInt32     *int32
+	MyList      []int32
+	MyDirection *string
 
 	e errorfer
 }
@@ -889,6 +959,10 @@ func (q *testQueryStruct) RequiredArgWithDefault(args map[string]Value) string {
 	}
 	echo := args["echo"].Scalar()
 	return echo + echo
+}
+
+func (q *testQueryStruct) EnumArg(args map[string]Value) string {
+	return args["direction"].Scalar()
 }
 
 func (q *testQueryStruct) NilErrorMethod() (string, error) {
