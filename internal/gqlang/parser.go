@@ -104,6 +104,9 @@ func (p *parser) definition() (*Definition, []error) {
 	case "type":
 		def, errs := p.objectTypeDefinition()
 		return def.asTypeDefinition().asDefinition(), errs
+	case "enum":
+		def, errs := p.enumTypeDefinition()
+		return def.asTypeDefinition().asDefinition(), errs
 	case "input":
 		def, errs := p.inputObjectTypeDefinition()
 		return def.asTypeDefinition().asDefinition(), errs
@@ -789,6 +792,64 @@ func (p *parser) argumentsDefinition() (*ArgumentsDefinition, []error) {
 		})
 	}
 	return args, errs
+}
+
+func (p *parser) enumTypeDefinition() (*EnumTypeDefinition, []error) {
+	defn := new(EnumTypeDefinition)
+	defn.Description = p.optionalDescription()
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("enum type definition: expected 'enum', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != name || p.tokens[0].source != "enum" {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("enum type definition: expected 'enum', found %q", p.tokens[0]),
+		}}
+	}
+	defn.Keyword = p.next().start
+	var err error
+	defn.Name, err = p.name()
+	if err != nil {
+		return defn, []error{xerrors.Errorf("enum type definition: %w", err)}
+	}
+	var errs []error
+	defn.Values, errs = p.enumValuesDefinition()
+	for i, err := range errs {
+		errs[i] = xerrors.Errorf("enum type definition %s: %w", defn.Name.Value, err)
+	}
+	return defn, errs
+}
+
+func (p *parser) enumValuesDefinition() (*EnumValuesDefinition, []error) {
+	defn := new(EnumValuesDefinition)
+	var errs []error
+	defn.LBrace, defn.RBrace, errs = p.group(lbrace, rbrace, "enum value definition", func() []error {
+		valueDefn := new(EnumValueDefinition)
+		valueDefn.Description = p.optionalDescription()
+		var err error
+		valueDefn.Value, err = p.name()
+		if err != nil {
+			return []error{err}
+		}
+		defn.Values = append(defn.Values, valueDefn)
+		if v := valueDefn.Value.Value; v == "null" || v == "true" || v == "false" {
+			return []error{xerrors.Errorf("expected enum name, found reserved name %q", v)}
+		}
+		return nil
+	})
+	if defn.LBrace == -1 {
+		return nil, errs
+	}
+	if defn.RBrace >= 0 && len(defn.Values) == 0 {
+		errs = append(errs, &posError{
+			pos: defn.RBrace,
+			err: xerrors.New("enum values definition: empty"),
+		})
+	}
+	return defn, errs
 }
 
 func (p *parser) inputObjectTypeDefinition() (*InputObjectTypeDefinition, []error) {

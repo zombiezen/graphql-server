@@ -571,6 +571,7 @@ type TypeDefinition struct {
 
 	Scalar      *ScalarTypeDefinition
 	Object      *ObjectTypeDefinition
+	Enum        *EnumTypeDefinition
 	InputObject *InputObjectTypeDefinition
 }
 
@@ -581,6 +582,8 @@ func (defn *TypeDefinition) Start() Pos {
 		return defn.Scalar.Keyword
 	case defn.Object != nil:
 		return defn.Object.Keyword
+	case defn.Enum != nil:
+		return defn.Enum.Keyword
 	case defn.InputObject != nil:
 		return defn.InputObject.Keyword
 	default:
@@ -598,6 +601,8 @@ func (defn *TypeDefinition) Description() *Description {
 		return defn.Scalar.Description
 	case defn.Object != nil:
 		return defn.Object.Description
+	case defn.Enum != nil:
+		return defn.Enum.Description
 	case defn.InputObject != nil:
 		return defn.InputObject.Description
 	default:
@@ -614,6 +619,8 @@ func (defn *TypeDefinition) Name() *Name {
 		return defn.Scalar.Name
 	case defn.Object != nil:
 		return defn.Object.Name
+	case defn.Enum != nil:
+		return defn.Enum.Name
 	case defn.InputObject != nil:
 		return defn.InputObject.Name
 	default:
@@ -674,6 +681,34 @@ type ArgumentsDefinition struct {
 	LParen Pos
 	Args   []*InputValueDefinition
 	RParen Pos
+}
+
+// EnumTypeDefinition defines an enumeration type and its possible values.
+// https://graphql.github.io/graphql-spec/June2018/#EnumTypeDefinition
+type EnumTypeDefinition struct {
+	Description *Description
+	Keyword     Pos
+	Name        *Name
+	Values      *EnumValuesDefinition
+}
+
+func (defn *EnumTypeDefinition) asTypeDefinition() *TypeDefinition {
+	return &TypeDefinition{Enum: defn}
+}
+
+// EnumValuesDefinition is a brace-delimited list of enumeration values.
+// https://graphql.github.io/graphql-spec/June2018/#EnumValuesDefinition
+type EnumValuesDefinition struct {
+	LBrace Pos
+	Values []*EnumValueDefinition
+	RBrace Pos
+}
+
+// EnumValueDefinition is a possible value of an enumeration.
+// https://graphql.github.io/graphql-spec/June2018/#EnumValueDefinition
+type EnumValueDefinition struct {
+	Description *Description
+	Value       *Name
 }
 
 // InputObjectTypeDefinition names an input object type.

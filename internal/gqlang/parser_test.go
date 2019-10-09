@@ -369,6 +369,43 @@ type Item {
 			},
 		},
 		{
+			name:  "EnumType",
+			input: `enum Foo { BAR, "Last" BAZ }`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{Enum: &EnumTypeDefinition{
+						Keyword: 0,
+						Name: &Name{
+							Start: 5,
+							Value: "Foo",
+						},
+						Values: &EnumValuesDefinition{
+							LBrace: 9,
+							Values: []*EnumValueDefinition{
+								{
+									Value: &Name{
+										Start: 11,
+										Value: "BAR",
+									},
+								},
+								{
+									Description: &Description{
+										Start: 16,
+										Raw:   `"Last"`,
+									},
+									Value: &Name{
+										Start: 23,
+										Value: "BAZ",
+									},
+								},
+							},
+							RBrace: 27,
+						},
+					}}},
+				},
+			},
+		},
+		{
 			name: "InputObjectType",
 			input: `"Parameters for creating an item"
 input ItemInput {
