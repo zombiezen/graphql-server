@@ -241,7 +241,8 @@ func coerceInput(typ *gqlType, input Input) (Value, []error) {
 				continue
 			}
 			var fieldErrs []error
-			valueMap[name], fieldErrs = coerceInput(typ, field)
+			// TODO(now): Write test
+			valueMap[name], fieldErrs = coerceInput(defn.typ(), field)
 			for _, err := range fieldErrs {
 				errs = append(errs, xerrors.Errorf("input field %s: %w", name, err))
 			}
