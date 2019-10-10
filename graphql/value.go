@@ -343,6 +343,12 @@ func scalarFromGo(goValue reflect.Value, typ *gqlType) (Value, error) {
 		}
 		val := strconv.FormatFloat(goValue.Float(), 'g', -1, bitSize)
 		return Value{typ: typ, val: val}, nil
+	case idType:
+		// TODO(now): Add test
+		if k := goValue.Kind(); k == reflect.Int32 || k == reflect.Int || k == reflect.Int64 {
+			return Value{typ: typ, val: strconv.FormatInt(goValue.Int(), 10)}, nil
+		}
+		fallthrough
 	default:
 		switch goIface := interfaceValueForAssertions(goValue).(type) {
 		case encoding.TextMarshaler:
