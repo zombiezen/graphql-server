@@ -46,11 +46,12 @@ func newSelectionSet(source string, variables map[string]Value, typ *objectType,
 			}
 			set.fields = append(set.fields, field)
 
-			var subErrs []error
-			// TODO(now): Add test for list + selection set.
-			field.sub, subErrs = newSelectionSet(source, variables, fieldInfo.typ.selectionSetType().obj, sel.Field.SelectionSet)
-			for _, err := range subErrs {
-				errs = append(errs, wrapFieldError(field.key, field.loc, err))
+			if fieldSelType := fieldInfo.typ.selectionSetType(); fieldSelType != nil {
+				var subErrs []error
+				field.sub, subErrs = newSelectionSet(source, variables, fieldSelType.obj, sel.Field.SelectionSet)
+				for _, err := range subErrs {
+					errs = append(errs, wrapFieldError(field.key, field.loc, err))
+				}
 			}
 			var argErrs []error
 			field.args, argErrs = coerceArgumentValues(source, variables, fieldInfo, sel.Field.Arguments)

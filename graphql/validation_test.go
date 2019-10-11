@@ -32,6 +32,7 @@ func TestValidateRequest(t *testing.T) {
 	const schemaSource = `
 		type Query {
 			dog: Dog
+			pack: [Dog!]!
 			arguments: Arguments
 			findDog(complex: ComplexInput): Dog
 			booleanList(booleanListArg: [Boolean!]): Boolean
@@ -305,6 +306,33 @@ func TestValidateRequest(t *testing.T) {
 					},
 					Path: []PathSegment{
 						{Field: "dog"},
+					},
+				},
+			},
+		},
+		{
+			name: "FieldSelection/Leaf/ListOfObjects",
+			request: `
+				{
+					pack {
+						name
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			name: "FieldSelection/Leaf/ListOfObjectsWithoutSelectionSet",
+			request: `
+				{
+					pack
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 45},
+					},
+					Path: []PathSegment{
+						{Field: "pack"},
 					},
 				},
 			},

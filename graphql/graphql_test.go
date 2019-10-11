@@ -37,6 +37,7 @@ func TestExecute(t *testing.T) {
 			myInt: Int
 			myInt32: Int
 			myList: [Int!]!
+			myObjectList: [Dog!]!
 			myDirection: Direction
 
 			niladicNoArgsMethod: String
@@ -58,6 +59,10 @@ func TestExecute(t *testing.T) {
 
 			listArgument(truths: [Boolean]): String
 			inputObjectArgument(complex: Complex): String
+		}
+
+		type Dog {
+			name: String!
 		}
 
 		enum Direction {
@@ -310,6 +315,26 @@ func TestExecute(t *testing.T) {
 			request: Request{Query: `{ myList }`},
 			want: []fieldExpectations{
 				{key: "myList", value: valueExpectations{list: []valueExpectations{}}},
+			},
+		},
+		{
+			name: "List/Objects",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyObjectList: []*testDogStruct{
+					{Name: "Fido"},
+					{Name: "Rover"},
+				}}
+			},
+			request: Request{Query: `{ myObjectList { name } }`},
+			want: []fieldExpectations{
+				{key: "myObjectList", value: valueExpectations{list: []valueExpectations{
+					{object: []fieldExpectations{
+						{key: "name", value: valueExpectations{scalar: "Fido"}},
+					}},
+					{object: []fieldExpectations{
+						{key: "name", value: valueExpectations{scalar: "Rover"}},
+					}},
+				}}},
 			},
 		},
 		{
@@ -865,12 +890,13 @@ func TestExecute(t *testing.T) {
 }
 
 type testQueryStruct struct {
-	MyString    *string
-	MyBoolean   *bool
-	MyInt       *int
-	MyInt32     *int32
-	MyList      []int32
-	MyDirection *string
+	MyString     *string
+	MyBoolean    *bool
+	MyInt        *int
+	MyInt32      *int32
+	MyList       []int32
+	MyObjectList []*testDogStruct
+	MyDirection  *string
 
 	e errorfer
 }
@@ -998,6 +1024,10 @@ func (q *testQueryStruct) InputObjectArgument(args map[string]Value) string {
 		return "<null input>"
 	}
 	return complex.ValueFor("foo").Scalar()
+}
+
+type testDogStruct struct {
+	Name string
 }
 
 func newString(s string) *string { return &s }
