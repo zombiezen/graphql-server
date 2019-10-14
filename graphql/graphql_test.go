@@ -860,6 +860,25 @@ func TestExecute(t *testing.T) {
 				{key: "inputObjectArgument", value: valueExpectations{scalar: "<null input>"}},
 			},
 		},
+		{
+			name: "Object/InputObjectArgument/Variable",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `query($complex: Complex!) {
+					inputObjectArgument(complex: $complex)
+				}`,
+				Variables: map[string]Input{
+					"complex": InputObject(map[string]Input{
+						"foo": ScalarInput("xyzzy"),
+					}),
+				},
+			},
+			want: []fieldExpectations{
+				{key: "inputObjectArgument", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		},
 	}
 
 	ctx := context.Background()
