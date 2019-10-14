@@ -36,6 +36,10 @@ func TestExecute(t *testing.T) {
 			myBoolean: Boolean
 			myInt: Int
 			myInt32: Int
+			# TODO(soon): s/ID/Id/ to match GraphQL conventions.
+			myIntID: ID
+			myInt64ID: ID
+			myStringID: ID
 			myList: [Int!]!
 			myObjectList: [Dog!]!
 			myDirection: Direction
@@ -57,6 +61,7 @@ func TestExecute(t *testing.T) {
 			nilErrorMethod: String
 			errorMethod: String
 
+			idArgument(id: ID): String
 			listArgument(truths: [Boolean]): String
 			inputObjectArgument(complex: Complex): String
 		}
@@ -221,6 +226,112 @@ func TestExecute(t *testing.T) {
 			request: Request{Query: `{ myInt }`},
 			want: []fieldExpectations{
 				{key: "myInt", value: valueExpectations{null: true}},
+			},
+		},
+		{
+			name: "ID/Result/Int",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyIntID: newInt(42)}
+			},
+			request: Request{Query: `{ myIntID }`},
+			want: []fieldExpectations{
+				{key: "myIntID", value: valueExpectations{scalar: "42"}},
+			},
+		},
+		{
+			name: "ID/Result/Int64",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyInt64ID: newInt64(42)}
+			},
+			request: Request{Query: `{ myInt64ID }`},
+			want: []fieldExpectations{
+				{key: "myInt64ID", value: valueExpectations{scalar: "42"}},
+			},
+		},
+		{
+			name: "ID/Result/String",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyStringID: newString("aardvark")}
+			},
+			request: Request{Query: `{ myStringID }`},
+			want: []fieldExpectations{
+				{key: "myStringID", value: valueExpectations{scalar: "aardvark"}},
+			},
+		},
+		{
+			name: "ID/Input/Literal/Int",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{Query: `{ idArgument(id: 123) }`},
+			want: []fieldExpectations{
+				{key: "idArgument", value: valueExpectations{scalar: "123"}},
+			},
+		},
+		{
+			name: "ID/Input/Literal/String",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{Query: `{ idArgument(id: "aardvark") }`},
+			want: []fieldExpectations{
+				{key: "idArgument", value: valueExpectations{scalar: "aardvark"}},
+			},
+		},
+		{
+			name: "ID/Input/Literal/Float",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{Query: `{ idArgument(id: 123.0) }`},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{1, 18},
+					},
+					Path: []PathSegment{
+						{Field: "idArgument"},
+					},
+				},
+			},
+		},
+		{
+			name: "ID/Input/Variable/Int",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query:     `query($id: ID!) { idArgument(id: $id) }`,
+				Variables: map[string]Input{"id": ScalarInput("123")},
+			},
+			want: []fieldExpectations{
+				{key: "idArgument", value: valueExpectations{scalar: "123"}},
+			},
+		},
+		{
+			name: "ID/Input/Variable/String",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query:     `query($id: ID!) { idArgument(id: $id) }`,
+				Variables: map[string]Input{"id": ScalarInput("aardvark")},
+			},
+			want: []fieldExpectations{
+				{key: "idArgument", value: valueExpectations{scalar: "aardvark"}},
+			},
+		},
+		{
+			name: "ID/Input/Variable/Float",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query:     `query($id: ID!) { idArgument(id: $id) }`,
+				Variables: map[string]Input{"id": ScalarInput("123.0")},
+			},
+			want: []fieldExpectations{
+				{key: "idArgument", value: valueExpectations{scalar: "123.0"}},
 			},
 		},
 		{
@@ -913,6 +1024,9 @@ type testQueryStruct struct {
 	MyBoolean    *bool
 	MyInt        *int
 	MyInt32      *int32
+	MyIntID      *int
+	MyInt64ID    *int64
+	MyStringID   *string
 	MyList       []int32
 	MyObjectList []*testDogStruct
 	MyDirection  *string
@@ -1021,6 +1135,11 @@ func (q *testQueryStruct) ErrorMethod() (string, error) {
 	return "xyzzy", xerrors.New("I have failed")
 }
 
+func (q *testQueryStruct) IdArgument(args map[string]Value) string {
+	// TODO(soon): s/Id/ID/ when case-insensitive matching is introduced.
+	return args["id"].Scalar()
+}
+
 func (q *testQueryStruct) ListArgument(args map[string]Value) string {
 	truths := args["truths"]
 	sb := new(strings.Builder)
@@ -1053,6 +1172,7 @@ func newString(s string) *string { return &s }
 func newBool(b bool) *bool       { return &b }
 func newInt(i int) *int          { return &i }
 func newInt32(i int32) *int32    { return &i }
+func newInt64(i int64) *int64    { return &i }
 
 type valueExpectations struct {
 	null   bool

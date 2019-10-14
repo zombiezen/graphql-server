@@ -35,6 +35,7 @@ func TestValidateRequest(t *testing.T) {
 			pack: [Dog!]!
 			arguments: Arguments
 			findDog(complex: ComplexInput): Dog
+			dogById(id: ID!): Dog
 			booleanList(booleanListArg: [Boolean!]): Boolean
 		}
 
@@ -602,6 +603,30 @@ func TestValidateRequest(t *testing.T) {
 				}
 			}`,
 			wantErrors: nil,
+		},
+		{
+			name:       "Values/Type/ID/Literal/Int",
+			request:    `{ dogById(id: 123) { name } }`,
+			wantErrors: nil,
+		},
+		{
+			name:       "Values/Type/ID/Literal/String",
+			request:    `{ dogById(id: "Fido") { name } }`,
+			wantErrors: nil,
+		},
+		{
+			name:    "Values/Type/ID/Literal/Float",
+			request: `{ dogById(id: 123.0) { name } }`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{1, 15},
+					},
+					Path: []PathSegment{
+						{Field: "dogById"},
+					},
+				},
+			},
 		},
 		{
 			name: "Values/Type/WrongListTypes",
