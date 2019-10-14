@@ -110,6 +110,9 @@ func buildTypeMap(source string, doc *gqlang.Document) (map[string]*gqlType, err
 			}
 			for _, v := range defn.Type.Enum.Values.Values {
 				sym := v.Value.Value
+				if strings.HasPrefix(sym, reservedPrefix) {
+					return nil, xerrors.Errorf("%v: use of reserved name %q", v.Value.Start.ToPosition(source), sym)
+				}
 				if info.has(sym) {
 					return nil, xerrors.Errorf("%v: multiple enum values with name %q", sym)
 				}

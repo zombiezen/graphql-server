@@ -176,6 +176,20 @@ func TestParseSchema(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "EnumType/ReservedName",
+			source: `
+				type Query { adjacent(direction: Direction!): ID }
+
+				enum Direction {
+					__NORTH
+					EAST
+					SOUTH
+					WEST
+				}
+			`,
+			wantErr: true,
+		},
+		{
 			name: "InputObject",
 			source: `
 				type Query {
