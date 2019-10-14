@@ -1353,6 +1353,21 @@ func TestResponseMarshalJSON(t *testing.T) {
 				json.Delim('}'),
 			},
 		},
+		{
+			name: "IDs",
+			v: Response{
+				Data: testIDObjectValue(),
+			},
+			want: []json.Token{
+				json.Delim('{'),
+				"data",
+				json.Delim('{'),
+				"myStringID", "xyzzy",
+				"myInt64ID", "42",
+				json.Delim('}'),
+				json.Delim('}'),
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1401,6 +1416,31 @@ func testObjectValue() Value {
 	}
 	response := srv.Execute(context.Background(), Request{
 		Query: `{ myInt, myString }`,
+	})
+	return response.Data
+}
+
+func testIDObjectValue() Value {
+	schema, err := ParseSchema(`
+		# TODO(soon): s/ID/Id/ to match GraphQL conventions.
+		type Query {
+			myStringID: ID
+			myInt64ID: ID
+		}
+	`)
+	if err != nil {
+		panic(err)
+	}
+	queryObject := &testQueryStruct{
+		MyStringID: newString("xyzzy"),
+		MyInt64ID:  newInt64(42),
+	}
+	srv, err := NewServer(schema, queryObject, nil)
+	if err != nil {
+		panic(err)
+	}
+	response := srv.Execute(context.Background(), Request{
+		Query: `{ myStringID, myInt64ID }`,
 	})
 	return response.Data
 }
