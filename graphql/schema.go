@@ -32,6 +32,10 @@ type Schema struct {
 
 // ParseSchema parses a GraphQL document containing type definitions.
 func ParseSchema(source string) (*Schema, error) {
+	return parseSchema(source, false)
+}
+
+func parseSchema(source string, internal bool) (*Schema, error) {
 	doc, errs := gqlang.Parse(source)
 	if len(errs) > 0 {
 		msgBuilder := new(strings.Builder)
@@ -51,7 +55,7 @@ func ParseSchema(source string) (*Schema, error) {
 			return nil, xerrors.Errorf("parse schema: %v: operations not allowed", defn.Operation.Start.ToPosition(source))
 		}
 	}
-	typeMap, err := buildTypeMap(source, doc)
+	typeMap, err := buildTypeMap(source, internal, doc)
 	if err != nil {
 		return nil, xerrors.Errorf("parse schema: %v", err)
 	}
@@ -74,7 +78,7 @@ func ParseSchema(source string) (*Schema, error) {
 
 const reservedPrefix = "__"
 
-func buildTypeMap(source string, doc *gqlang.Document) (map[string]*gqlType, error) {
+func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[string]*gqlType, error) {
 	typeMap := make(map[string]*gqlType)
 	builtins := []*gqlType{
 		booleanType,
@@ -93,7 +97,7 @@ func buildTypeMap(source string, doc *gqlang.Document) (map[string]*gqlType, err
 			continue
 		}
 		name := t.Name()
-		if strings.HasPrefix(name.Value, reservedPrefix) {
+		if !internal && strings.HasPrefix(name.Value, reservedPrefix) {
 			return nil, xerrors.Errorf("%v: use of reserved name %q", name.Start.ToPosition(source), name.Value)
 		}
 		if typeMap[name.Value] != nil {
@@ -110,7 +114,7 @@ func buildTypeMap(source string, doc *gqlang.Document) (map[string]*gqlType, err
 			}
 			for _, v := range defn.Type.Enum.Values.Values {
 				sym := v.Value.Value
-				if strings.HasPrefix(sym, reservedPrefix) {
+				if !internal && strings.HasPrefix(sym, reservedPrefix) {
 					return nil, xerrors.Errorf("%v: use of reserved name %q", v.Value.Start.ToPosition(source), sym)
 				}
 				if info.has(sym) {
@@ -138,11 +142,11 @@ func buildTypeMap(source string, doc *gqlang.Document) (map[string]*gqlType, err
 		}
 		switch {
 		case defn.Type.Object != nil:
-			if err := fillObjectTypeFields(source, typeMap, defn.Type.Object); err != nil {
+			if err := fillObjectTypeFields(source, internal, typeMap, defn.Type.Object); err != nil {
 				return nil, err
 			}
 		case defn.Type.InputObject != nil:
-			if err := fillInputObjectTypeFields(source, typeMap, defn.Type.InputObject); err != nil {
+			if err := fillInputObjectTypeFields(source, internal, typeMap, defn.Type.InputObject); err != nil {
 				return nil, err
 			}
 		}
@@ -150,11 +154,11 @@ func buildTypeMap(source string, doc *gqlang.Document) (map[string]*gqlType, err
 	return typeMap, nil
 }
 
-func fillObjectTypeFields(source string, typeMap map[string]*gqlType, obj *gqlang.ObjectTypeDefinition) error {
+func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlType, obj *gqlang.ObjectTypeDefinition) error {
 	info := typeMap[obj.Name.Value].obj
 	for _, fieldDefn := range obj.Fields.Defs {
 		fieldName := fieldDefn.Name.Value
-		if strings.HasPrefix(fieldName, reservedPrefix) {
+		if !internal && strings.HasPrefix(fieldName, reservedPrefix) {
 			return xerrors.Errorf("%v: use of reserved name %q", fieldDefn.Name.Start.ToPosition(source), fieldName)
 		}
 		if _, found := info.fields[fieldName]; found {
@@ -174,7 +178,7 @@ func fillObjectTypeFields(source string, typeMap map[string]*gqlType, obj *gqlan
 			f.args = make(map[string]inputValueDefinition)
 			for _, arg := range fieldDefn.Args.Args {
 				argName := arg.Name.Value
-				if strings.HasPrefix(argName, reservedPrefix) {
+				if !internal && strings.HasPrefix(argName, reservedPrefix) {
 					return xerrors.Errorf("%v: use of reserved name %q", arg.Name.Start.ToPosition(source), argName)
 				}
 				if _, found := f.args[argName]; found {
@@ -202,11 +206,11 @@ func fillObjectTypeFields(source string, typeMap map[string]*gqlType, obj *gqlan
 	return nil
 }
 
-func fillInputObjectTypeFields(source string, typeMap map[string]*gqlType, obj *gqlang.InputObjectTypeDefinition) error {
+func fillInputObjectTypeFields(source string, internal bool, typeMap map[string]*gqlType, obj *gqlang.InputObjectTypeDefinition) error {
 	info := typeMap[obj.Name.Value].input
 	for _, fieldDefn := range obj.Fields.Defs {
 		fieldName := fieldDefn.Name.Value
-		if strings.HasPrefix(fieldName, reservedPrefix) {
+		if !internal && strings.HasPrefix(fieldName, reservedPrefix) {
 			return xerrors.Errorf("%v: use of reserved name %q", fieldDefn.Name.Start.ToPosition(source), fieldName)
 		}
 		if _, found := info.fields[fieldName]; found {

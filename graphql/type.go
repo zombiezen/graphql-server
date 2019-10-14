@@ -154,6 +154,26 @@ func (typ *gqlType) String() string {
 	}
 }
 
+// Kind returns the __TypeKind field for introspection.
+func (typ *gqlType) Kind() string {
+	switch {
+	case !typ.isNullable():
+		return "NON_NULL"
+	case typ.isScalar():
+		return "SCALAR"
+	case typ.isObject():
+		return "OBJECT"
+	case typ.isEnum():
+		return "ENUM"
+	case typ.isInputObject():
+		return "INPUT_OBJECT"
+	case typ.isList():
+		return "LIST"
+	default:
+		panic("invalid type")
+	}
+}
+
 // isNullable reports whether the type permits null.
 func (typ *gqlType) isNullable() bool {
 	return !typ.nonNull
