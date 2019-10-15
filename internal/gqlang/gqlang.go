@@ -237,16 +237,16 @@ func (sval *ScalarValue) String() string {
 func (sval *ScalarValue) Value() string {
 	switch {
 	case strings.HasPrefix(sval.Raw, `"""`):
-		return sval.blockStringValue()
+		return parseBlockString(sval.Raw)
 	case strings.HasPrefix(sval.Raw, `"`):
-		return sval.stringValue()
+		return parseString(sval.Raw)
 	default:
 		return sval.Raw
 	}
 }
 
-func (sval *ScalarValue) stringValue() string {
-	raw := strings.TrimPrefix(sval.Raw, `"`)
+func parseString(raw string) string {
+	raw = strings.TrimPrefix(raw, `"`)
 	raw = strings.TrimSuffix(raw, `"`)
 	sb := new(strings.Builder)
 	sb.Grow(len(raw))
@@ -281,8 +281,8 @@ func (sval *ScalarValue) stringValue() string {
 	return sb.String()
 }
 
-func (sval *ScalarValue) blockStringValue() string {
-	raw := strings.TrimPrefix(sval.Raw, `"""`)
+func parseBlockString(raw string) string {
+	raw = strings.TrimPrefix(raw, `"""`)
 	raw = strings.TrimSuffix(raw, `"""`)
 	raw = strings.ReplaceAll(raw, `\"""`, `"""`)
 	lines := splitLines(raw)
@@ -562,6 +562,17 @@ func (nn *NonNullType) String() string {
 type Description struct {
 	Start Pos
 	Raw   string
+}
+
+// Value returns the string value of the description.
+func (d *Description) Value() string {
+	if d == nil {
+		return ""
+	}
+	if strings.HasPrefix(d.Raw, `"""`) {
+		return parseBlockString(d.Raw)
+	}
+	return parseString(d.Raw)
 }
 
 // TypeDefinition holds a type definition.
