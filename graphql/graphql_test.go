@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -1201,8 +1202,11 @@ func (expect *valueExpectations) check(e errorfer, v Value) {
 			e.Errorf("len(v) == %d; want %d", v.Len(), len(expect.list))
 		}
 		for i := 0; i < v.Len() && i < len(expect.list); i++ {
-			// TODO(maybe): Prepend info about which list item failed on error.
-			expect.list[i].check(e, v.At(i))
+			p := prefixErrorfer{
+				prefix:   fmt.Sprintf("list[%d]: ", i),
+				errorfer: e,
+			}
+			expect.list[i].check(p, v.At(i))
 		}
 	}
 	if len(expect.object) > 0 {
@@ -1226,15 +1230,29 @@ func (expect *valueExpectations) check(e errorfer, v Value) {
 			gotField := v.Field(i)
 			if gotField.Key != wantField.key {
 				e.Errorf("fields[%d].key = %q; want %q", i, gotField.Key, wantField.key)
+				continue
 			}
-			// TODO(maybe): Prepend info about which field failed on error.
-			wantField.value.check(e, gotField.Value)
+			p := prefixErrorfer{
+				prefix:   fmt.Sprintf("field %s: ", gotField.Key),
+				errorfer: e,
+			}
+			wantField.value.check(p, gotField.Value)
 		}
 	}
 }
 
 type errorfer interface {
 	Errorf(format string, arguments ...interface{})
+}
+
+type prefixErrorfer struct {
+	prefix   string
+	errorfer errorfer
+}
+
+func (p prefixErrorfer) Errorf(format string, arguments ...interface{}) {
+	inner := fmt.Sprintf(format, arguments...)
+	p.errorfer.Errorf("%s", p.prefix+inner)
 }
 
 func TestResponseMarshalJSON(t *testing.T) {
