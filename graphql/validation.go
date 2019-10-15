@@ -109,7 +109,7 @@ func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []err
 			}
 			continue
 		}
-		selErrs := validateSelectionSet(source, variables, opType, op.SelectionSet)
+		selErrs := validateSelectionSet(source, op.Type == gqlang.Query, variables, opType, op.SelectionSet)
 		if op.Name != nil {
 			for _, err := range selErrs {
 				errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name, err))
@@ -228,10 +228,20 @@ func validateVariableUsage(source string, defns *gqlang.VariableDefinitions, var
 	return errs
 }
 
-func validateSelectionSet(source string, variables map[string]*validatedVariable, typ *gqlType, set *gqlang.SelectionSet) []error {
+func validateSelectionSet(source string, isRootQuery bool, variables map[string]*validatedVariable, typ *gqlType, set *gqlang.SelectionSet) []error {
 	var errs []error
 	for _, selection := range set.Sel {
 		fieldInfo := typ.obj.fields[selection.Field.Name.Value]
+		if isRootQuery {
+			// Top-level queries have a few extra fields for introspection:
+			// https://graphql.github.io/graphql-spec/June2018/#sec-Schema-Introspection
+			switch selection.Field.Name.Value {
+			case typeByNameFieldName:
+				fieldInfo = typeByNameField()
+			case schemaFieldName:
+				fieldInfo = schemaField()
+			}
+		}
 		loc := astPositionToLocation(selection.Field.Name.Start.ToPosition(source))
 		if fieldInfo.typ == nil {
 			// Field not found.
@@ -272,7 +282,7 @@ func validateSelectionSet(source string, variables map[string]*validatedVariable
 				})
 				continue
 			}
-			subErrs := validateSelectionSet(source, variables, subsetType, selection.Field.SelectionSet)
+			subErrs := validateSelectionSet(source, false, variables, subsetType, selection.Field.SelectionSet)
 			for _, err := range subErrs {
 				errs = append(errs, wrapFieldError(selection.Field.Key(), loc, err))
 			}
@@ -306,7 +316,7 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 		}
 		for _, name := range argumentNames {
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Argument-Names
-			if defns[name].typ() == nil {
+			if defns[name].Type() == nil {
 				err := &ResponseError{
 					Message: fmt.Sprintf("unknown argument %s", name),
 				}
@@ -334,7 +344,7 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 	}
 	// https://graphql.github.io/graphql-spec/June2018/#sec-Required-Arguments
 	for name, defn := range defns {
-		if defn.typ().isNullable() {
+		if defn.Type().isNullable() {
 			continue
 		}
 		if len(argumentsByName[name]) == 0 {
@@ -365,7 +375,7 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 		if len(args) == 0 {
 			continue
 		}
-		argErrs := validateValue(source, variables, defn.typ(), !defn.defaultValue.IsNull(), args[0].Value)
+		argErrs := validateValue(source, variables, defn.Type(), !defn.defaultValue.IsNull(), args[0].Value)
 		for _, err := range argErrs {
 			errs = append(errs, xerrors.Errorf("argument %s: %w", name, err))
 		}
@@ -490,7 +500,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Required-Fields
 		for name, defn := range typ.input.fields {
 			if len(fieldsByName[name]) == 0 {
-				if !defn.typ().isNullable() && defn.defaultValue.IsNull() {
+				if !defn.Type().isNullable() && defn.defaultValue.IsNull() {
 					errs = append(errs, &ResponseError{
 						Message: fmt.Sprintf("missing required input field for %v.%s", typ.toNullable(), name),
 						Locations: []Location{
@@ -501,7 +511,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 				continue
 			}
 			field := fieldsByName[name][0]
-			if !defn.typ().isNullable() && field.Value.Null != nil {
+			if !defn.Type().isNullable() && field.Value.Null != nil {
 				errs = append(errs, &ResponseError{
 					Message: fmt.Sprintf("required input field %v.%s is null", typ.toNullable(), name),
 					Locations: []Location{
@@ -510,7 +520,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 				})
 				continue
 			}
-			fieldErrs := validateValue(source, variables, defn.typ(), !defn.defaultValue.IsNull(), field.Value)
+			fieldErrs := validateValue(source, variables, defn.Type(), !defn.defaultValue.IsNull(), field.Value)
 			for _, err := range fieldErrs {
 				errs = append(errs, xerrors.Errorf("input field %s: %w", name, err))
 			}

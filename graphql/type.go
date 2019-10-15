@@ -23,6 +23,8 @@ import "sync"
 // Types can be compared for equality using ==. Types with the same name from
 // different schemas are never equal.
 type gqlType struct {
+	description string
+
 	scalar   string
 	enum     *enumType
 	listElem *gqlType
@@ -49,13 +51,9 @@ func (enum *enumType) has(sym string) bool {
 }
 
 type objectType struct {
-	name   string
-	fields map[string]objectTypeField
-}
-
-type objectTypeField struct {
-	typ  *gqlType
-	args map[string]inputValueDefinition
+	name       string
+	fields     map[string]objectTypeField
+	fieldOrder []string
 }
 
 type inputObjectType struct {
@@ -63,57 +61,70 @@ type inputObjectType struct {
 	fields map[string]inputValueDefinition
 }
 
-type inputValueDefinition struct {
-	// defaultValue.typ will always be set. Most of the time, defaultValue
-	// is valid value of the type. However, if the type is non-nullable and
-	// does not have a default, the value will be typed null.
-	//
-	// This is the only way to distinguish not having a default from having a
-	// null default, but it's the only situation in which not having a default is
-	// relevant in the GraphQL specification.
-	defaultValue Value
-}
-
-func (ivd inputValueDefinition) typ() *gqlType {
-	return ivd.defaultValue.typ
-}
-
 // Predefined types.
 var (
-	intType     = newScalarType("Int")
-	floatType   = newScalarType("Float")
-	stringType  = newScalarType("String")
-	booleanType = newScalarType("Boolean")
-	idType      = newScalarType("ID")
+	intType     = newScalarType("Int", "")
+	floatType   = newScalarType("Float", "")
+	stringType  = newScalarType("String", "")
+	booleanType = newScalarType("Boolean", "")
+	idType      = newScalarType("ID", "")
 )
 
-func newScalarType(name string) *gqlType {
-	nullable := &gqlType{scalar: name}
-	nonNullable := &gqlType{scalar: name, nonNull: true}
+func newScalarType(name, description string) *gqlType {
+	nullable := &gqlType{
+		scalar:      name,
+		description: description,
+	}
+	nonNullable := &gqlType{
+		scalar:      name,
+		description: description,
+		nonNull:     true,
+	}
 	nullable.nullVariant = nonNullable
 	nonNullable.nullVariant = nullable
 	return nullable
 }
 
-func newEnumType(info *enumType) *gqlType {
-	nullable := &gqlType{enum: info}
-	nonNullable := &gqlType{enum: info, nonNull: true}
+func newEnumType(info *enumType, description string) *gqlType {
+	nullable := &gqlType{
+		enum:        info,
+		description: description,
+	}
+	nonNullable := &gqlType{
+		description: description,
+		enum:        info,
+		nonNull:     true,
+	}
 	nullable.nullVariant = nonNullable
 	nonNullable.nullVariant = nullable
 	return nullable
 }
 
-func newObjectType(info *objectType) *gqlType {
-	nullable := &gqlType{obj: info}
-	nonNullable := &gqlType{obj: info, nonNull: true}
+func newObjectType(info *objectType, description string) *gqlType {
+	nullable := &gqlType{
+		obj:         info,
+		description: description,
+	}
+	nonNullable := &gqlType{
+		obj:         info,
+		description: description,
+		nonNull:     true,
+	}
 	nullable.nullVariant = nonNullable
 	nonNullable.nullVariant = nullable
 	return nullable
 }
 
-func newInputObjectType(info *inputObjectType) *gqlType {
-	nullable := &gqlType{input: info}
-	nonNullable := &gqlType{input: info, nonNull: true}
+func newInputObjectType(info *inputObjectType, description string) *gqlType {
+	nullable := &gqlType{
+		input:       info,
+		description: description,
+	}
+	nonNullable := &gqlType{
+		input:       info,
+		description: description,
+		nonNull:     true,
+	}
 	nullable.nullVariant = nonNullable
 	nonNullable.nullVariant = nullable
 	return nullable
@@ -172,6 +183,49 @@ func (typ *gqlType) Kind() string {
 	default:
 		panic("invalid type")
 	}
+}
+
+// Name returns the name field for introspection.
+func (typ *gqlType) Name() *string {
+	var name string
+	switch {
+	case !typ.isNullable():
+		// Non-null is a wrapper.
+		return nil
+	case typ.isScalar():
+		name = typ.scalar
+	case typ.isObject():
+		name = typ.obj.name
+	case typ.isEnum():
+		name = typ.enum.name
+	case typ.isInputObject():
+		name = typ.input.name
+	default:
+		return nil
+	}
+	return &name
+}
+
+// Description returns the type's documentation.
+func (typ *gqlType) Description() *string {
+	if typ.description == "" {
+		return nil
+	}
+	s := new(string)
+	*s = typ.description
+	return s
+}
+
+// Fields returns the list of object fields.
+func (typ *gqlType) Fields() *[]objectTypeField {
+	if !typ.isObject() {
+		return nil
+	}
+	var fields []objectTypeField
+	for _, name := range typ.obj.fieldOrder {
+		fields = append(fields, typ.obj.fields[name])
+	}
+	return &fields
 }
 
 // isNullable reports whether the type permits null.
@@ -267,4 +321,55 @@ func areTypesCompatible(locationType, variableType *gqlType) bool {
 			return locationType == variableType
 		}
 	}
+}
+
+type objectTypeField struct {
+	name        string
+	description string
+	typ         *gqlType
+	args        map[string]inputValueDefinition
+}
+
+func (f objectTypeField) Name() string {
+	return f.name
+}
+
+func (f objectTypeField) Description() *string {
+	if f.description == "" {
+		return nil
+	}
+	s := new(string)
+	*s = f.description
+	return s
+}
+
+func (f objectTypeField) Args() []interface{} {
+	return nil
+}
+
+func (f objectTypeField) Type() *gqlType {
+	return f.typ
+}
+
+func (f objectTypeField) IsDeprecated() bool {
+	return false
+}
+
+func (f objectTypeField) DeprecationReason() *string {
+	return nil
+}
+
+type inputValueDefinition struct {
+	// defaultValue.typ will always be set. Most of the time, defaultValue
+	// is valid value of the type. However, if the type is non-nullable and
+	// does not have a default, the value will be typed null.
+	//
+	// This is the only way to distinguish not having a default from having a
+	// null default, but it's the only situation in which not having a default is
+	// relevant in the GraphQL specification.
+	defaultValue Value
+}
+
+func (ivd inputValueDefinition) Type() *gqlType {
+	return ivd.defaultValue.typ
 }

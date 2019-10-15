@@ -47,7 +47,7 @@ type Field struct {
 
 // valueFromGo converts a Go value into a GraphQL value. The selection set is
 // ignored for scalars.
-func valueFromGo(ctx context.Context, variables map[string]Value, goValue reflect.Value, typ *gqlType, sel *SelectionSet) (Value, []error) {
+func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Value, goValue reflect.Value, typ *gqlType, sel *SelectionSet) (Value, []error) {
 	// Since this function is recursive, caller must prepend error operation.
 
 	goValue = unwrapPointer(goValue)
@@ -71,7 +71,7 @@ func valueFromGo(ctx context.Context, variables map[string]Value, goValue reflec
 		gqlValues := make([]Value, goValue.Len())
 		for i := range gqlValues {
 			var errs []error
-			gqlValues[i], errs = valueFromGo(ctx, variables, goValue.Index(i), typ.listElem, sel)
+			gqlValues[i], errs = schema.valueFromGo(ctx, variables, goValue.Index(i), typ.listElem, sel)
 			if len(errs) > 0 {
 				for j := range errs {
 					errs[j] = &listElementError{idx: i, err: errs[j]}
@@ -88,7 +88,16 @@ func valueFromGo(ctx context.Context, variables map[string]Value, goValue reflec
 		gqlFields := make([]Field, 0, len(sel.fields))
 		var errs []error
 		for _, f := range sel.fields {
-			fval, ferrs := readField(ctx, variables, goValue, f, typ.obj.fields[f.name])
+			var fval Value
+			var ferrs []error
+			// Validation determines whether this is a valid reference to the
+			// reserved fields.
+			switch f.name {
+			case typeByNameFieldName:
+				fval, ferrs = schema.introspectType(ctx, variables, f)
+			default:
+				fval, ferrs = schema.readField(ctx, variables, goValue, f, typ.obj.fields[f.name])
+			}
 			gqlFields = append(gqlFields, Field{Key: f.key, Value: fval})
 			errs = append(errs, ferrs...)
 		}
@@ -117,7 +126,7 @@ func coerceArgumentValues(source string, variables map[string]Value, fieldInfo o
 			}
 		}
 		var argErrs []error
-		argValues[name], argErrs = coerceInputValue(source, variables, defn.typ(), arg.Value)
+		argValues[name], argErrs = coerceInputValue(source, variables, defn.Type(), arg.Value)
 		for _, err := range argErrs {
 			errs = append(errs, xerrors.Errorf("argument %s: %w", name, err))
 		}
@@ -191,7 +200,7 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 		var errs []error
 		for _, field := range inputValue.InputObject.Fields {
 			fieldName := field.Name.Value
-			fieldType := typ.input.fields[fieldName].typ()
+			fieldType := typ.input.fields[fieldName].Type()
 			var fieldErrs []error
 			val[fieldName], fieldErrs = coerceInputValue(source, variables, fieldType, field.Value)
 			for _, err := range fieldErrs {
@@ -204,13 +213,13 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 	}
 }
 
-func readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, f *SelectedField, defn objectTypeField) (Value, []error) {
+func (schema *Schema) readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, f *SelectedField, defn objectTypeField) (Value, []error) {
 	// TODO(soon): Search over all fields and/or methods to find case-insensitive match.
 	goName := graphQLToGoFieldName(f.name)
 
 	if len(defn.args) == 0 && goValue.Kind() == reflect.Struct {
 		if fieldValue := goValue.FieldByName(goName); fieldValue.IsValid() {
-			v, errs := valueFromGo(ctx, variables, fieldValue, defn.typ, f.sub)
+			v, errs := schema.valueFromGo(ctx, variables, fieldValue, defn.typ, f.sub)
 			if len(errs) > 0 {
 				for i := range errs {
 					errs[i] = wrapFieldError(f.key, f.loc, errs[i])
@@ -232,7 +241,7 @@ func readField(ctx context.Context, variables map[string]Value, goValue reflect.
 	if err != nil {
 		return Value{typ: defn.typ}, []error{wrapFieldError(f.key, f.loc, err)}
 	}
-	ret, errs := valueFromGo(ctx, variables, methodResult, defn.typ, f.sub)
+	ret, errs := schema.valueFromGo(ctx, variables, methodResult, defn.typ, f.sub)
 	if len(errs) > 0 {
 		for i := range errs {
 			errs[i] = wrapFieldError(f.key, f.loc, errs[i])

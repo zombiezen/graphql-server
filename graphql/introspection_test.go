@@ -22,8 +22,6 @@ import (
 )
 
 func TestIntrospection(t *testing.T) {
-	t.Skip("Introspection not implemented")
-
 	tests := []struct {
 		name    string
 		schema  string
@@ -31,7 +29,60 @@ func TestIntrospection(t *testing.T) {
 		want    []fieldExpectations
 	}{
 		{
-			name: "Basic/Type",
+			// https://graphql.github.io/graphql-spec/June2018/#example-00283
+			name: "Type/User",
+			schema: `
+				type Query {
+					user: User
+				}
+
+				type User {
+					id: String
+					name: String
+					birthday: Date
+				}
+
+				scalar Date
+			`,
+			request: Request{Query: `{
+				__type(name: "User") {
+					name
+					fields {
+						name
+						type {
+							name
+						}
+					}
+				}
+			}`},
+			want: []fieldExpectations{
+				{key: "__type", value: valueExpectations{object: []fieldExpectations{
+					{key: "name", value: valueExpectations{scalar: "User"}},
+					{key: "fields", value: valueExpectations{list: []valueExpectations{
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "id"}},
+							{key: "type", value: valueExpectations{object: []fieldExpectations{
+								{key: "name", value: valueExpectations{scalar: "String"}},
+							}}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "name"}},
+							{key: "type", value: valueExpectations{object: []fieldExpectations{
+								{key: "name", value: valueExpectations{scalar: "String"}},
+							}}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "birthday"}},
+							{key: "type", value: valueExpectations{object: []fieldExpectations{
+								{key: "name", value: valueExpectations{scalar: "Date"}},
+							}}},
+						}},
+					}}},
+				}}},
+			},
+		},
+		{
+			name: "Type/AllFields",
 			schema: `
 				"""
 				The root query type.
@@ -53,7 +104,9 @@ func TestIntrospection(t *testing.T) {
 						fields {
 							name
 							description
-							args
+							args {
+								name
+							}
 							type {
 								kind
 								name

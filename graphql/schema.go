@@ -64,14 +64,16 @@ func parseSchema(source string, internal bool) (*Schema, error) {
 		mutation: typeMap["Mutation"],
 		types:    typeMap,
 	}
-	if schema.query == nil {
-		return nil, xerrors.New("parse schema: could not find Query type")
-	}
-	if !schema.query.isObject() {
-		return nil, xerrors.Errorf("parse schema: query type %v must be an object", schema.query)
-	}
-	if schema.mutation != nil && !schema.mutation.isObject() {
-		return nil, xerrors.Errorf("parse schema: mutation type %v must be an object", schema.mutation)
+	if !internal {
+		if schema.query == nil {
+			return nil, xerrors.New("parse schema: could not find Query type")
+		}
+		if !schema.query.isObject() {
+			return nil, xerrors.Errorf("parse schema: query type %v must be an object", schema.query)
+		}
+		if schema.mutation != nil && !schema.mutation.isObject() {
+			return nil, xerrors.Errorf("parse schema: mutation type %v must be an object", schema.mutation)
+		}
 	}
 	return schema, nil
 }
@@ -106,7 +108,7 @@ func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[strin
 
 		switch {
 		case t.Scalar != nil:
-			typeMap[name.Value] = newScalarType(name.Value)
+			typeMap[name.Value] = newScalarType(name.Value, t.Scalar.Description.Value())
 		case t.Enum != nil:
 			info := &enumType{
 				name:    name.Value,
@@ -122,17 +124,17 @@ func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[strin
 				}
 				info.symbols[sym] = struct{}{}
 			}
-			typeMap[name.Value] = newEnumType(info)
+			typeMap[name.Value] = newEnumType(info, t.Enum.Description.Value())
 		case t.Object != nil:
 			typeMap[name.Value] = newObjectType(&objectType{
 				name:   name.Value,
 				fields: make(map[string]objectTypeField),
-			})
+			}, t.Object.Description.Value())
 		case t.InputObject != nil:
 			typeMap[name.Value] = newInputObjectType(&inputObjectType{
 				name:   name.Value,
 				fields: make(map[string]inputValueDefinition),
-			})
+			}, t.InputObject.Description.Value())
 		}
 	}
 	// Second pass: fill in object definitions.
@@ -172,7 +174,9 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 			return xerrors.Errorf("%v: %v is not an output type", fieldDefn.Type.Start().ToPosition(source), fieldDefn.Type)
 		}
 		f := objectTypeField{
-			typ: typ,
+			name:        fieldName,
+			description: fieldDefn.Description.Value(),
+			typ:         typ,
 		}
 		if fieldDefn.Args != nil {
 			f.args = make(map[string]inputValueDefinition)
@@ -201,7 +205,8 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 				f.args[argName] = inputValueDefinition{defaultValue: defaultValue}
 			}
 		}
-		info.fields[fieldDefn.Name.Value] = f
+		info.fields[fieldName] = f
+		info.fieldOrder = append(info.fieldOrder, fieldName)
 	}
 	return nil
 }

@@ -230,18 +230,18 @@ func coerceInput(typ *gqlType, input Input) (Value, []error) {
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Required-Fields
 		for name, defn := range typ.input.fields {
 			if _, hasValue := inputObj[name]; !hasValue {
-				if !defn.typ().isNullable() && defn.defaultValue.IsNull() {
+				if !defn.Type().isNullable() && defn.defaultValue.IsNull() {
 					errs = append(errs, xerrors.Errorf("missing required input field for %v.%s", typ.toNullable(), name))
 				}
 				continue
 			}
 			field := inputObj[name]
-			if !defn.typ().isNullable() && field.isNull() {
+			if !defn.Type().isNullable() && field.isNull() {
 				errs = append(errs, xerrors.Errorf("required input field %v.%s is null", typ.toNullable(), name))
 				continue
 			}
 			var fieldErrs []error
-			valueMap[name], fieldErrs = coerceInput(defn.typ(), field)
+			valueMap[name], fieldErrs = coerceInput(defn.Type(), field)
 			for _, err := range fieldErrs {
 				errs = append(errs, xerrors.Errorf("input field %s: %w", name, err))
 			}

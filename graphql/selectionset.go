@@ -26,6 +26,8 @@ type SelectionSet struct {
 	fields []*SelectedField
 }
 
+// newSelectionSet returns a new selection set from the request's AST.
+// It assumes that the AST has been validated.
 func newSelectionSet(source string, variables map[string]Value, typ *objectType, ast *gqlang.SelectionSet) (*SelectionSet, []error) {
 	if ast == nil {
 		return nil, nil
@@ -36,6 +38,14 @@ func newSelectionSet(source string, variables map[string]Value, typ *objectType,
 		if sel.Field != nil {
 			name := sel.Field.Name.Value
 			fieldInfo := typ.fields[name]
+			// Validation determines whether this is a valid reference to the
+			// reserved fields.
+			switch name {
+			case typeByNameFieldName:
+				fieldInfo = typeByNameField()
+			case schemaFieldName:
+				fieldInfo = schemaField()
+			}
 			field := &SelectedField{
 				name: name,
 				key:  name,

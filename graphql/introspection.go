@@ -16,7 +16,18 @@
 
 package graphql
 
-import "sync"
+import (
+	"context"
+	"reflect"
+	"sync"
+)
+
+// Predefined introspection field names.
+const (
+	typeByNameFieldName = "__type"
+	schemaFieldName     = "__schema"
+	typeNameFieldName   = "__typename"
+)
 
 // schemaType returns the built-in __Schema type.
 func schemaType() *gqlType {
@@ -26,6 +37,41 @@ func schemaType() *gqlType {
 // typeType returns the built-in __Type type.
 func typeType() *gqlType {
 	return introspectionSchema().types["__Type"]
+}
+
+func typeByNameField() objectTypeField {
+	return objectTypeField{
+		name: typeByNameFieldName,
+		typ:  typeType(),
+		args: map[string]inputValueDefinition{
+			"name": inputValueDefinition{
+				defaultValue: Value{typ: stringType.toNonNullable()},
+			},
+		},
+	}
+}
+
+func schemaField() objectTypeField {
+	return objectTypeField{
+		name: schemaFieldName,
+		typ:  typeType(),
+		args: map[string]inputValueDefinition{
+			"name": inputValueDefinition{
+				defaultValue: Value{typ: stringType.toNonNullable()},
+			},
+		},
+	}
+}
+
+// introspectType implements the "__type" field at the root of a query.
+func (schema *Schema) introspectType(ctx context.Context, variables map[string]Value, field *SelectedField) (Value, []error) {
+	name := field.Arg("name").Scalar()
+	typ := schema.types[name]
+	if typ == nil {
+		// Not found; return null.
+		return Value{typ: typeType()}, nil
+	}
+	return schema.valueFromGo(ctx, variables, reflect.ValueOf(typ), typeType(), field.SelectionSet())
 }
 
 var introspect struct {
