@@ -37,7 +37,7 @@ func newSelectionSet(source string, variables map[string]Value, typ *objectType,
 	for _, sel := range ast.Sel {
 		if sel.Field != nil {
 			name := sel.Field.Name.Value
-			fieldInfo := typ.fields[name]
+			fieldInfo := typ.field(name)
 			// Validation determines whether this is a valid reference to the
 			// reserved fields.
 			switch name {

@@ -41,24 +41,66 @@ type gqlType struct {
 }
 
 type enumType struct {
-	name    string
-	symbols map[string]struct{}
+	name   string
+	values []enumValue
 }
 
 func (enum *enumType) has(sym string) bool {
-	_, found := enum.symbols[sym]
-	return found
+	for _, v := range enum.values {
+		if v.name == sym {
+			return true
+		}
+	}
+	return false
+}
+
+type enumValue struct {
+	name        string
+	description string
+}
+
+func (v enumValue) Name() string {
+	return v.name
+}
+
+func (v enumValue) Description() NullString {
+	return NullString{S: v.description, Valid: v.description != ""}
+}
+
+func (v enumValue) IsDeprecated() bool {
+	return false
+}
+
+func (v enumValue) DeprecationReason() NullString {
+	return NullString{}
 }
 
 type objectType struct {
-	name       string
-	fields     map[string]objectTypeField
-	fieldOrder []string
+	name   string
+	fields []objectTypeField
+}
+
+func (obj *objectType) field(name string) *objectTypeField {
+	for i := range obj.fields {
+		if obj.fields[i].name == name {
+			return &obj.fields[i]
+		}
+	}
+	return nil
 }
 
 type inputObjectType struct {
 	name   string
-	fields map[string]inputValueDefinition
+	fields []inputValueDefinition
+}
+
+func (input *inputObjectType) field(name string) *inputValueDefinition {
+	for i := range input.fields {
+		if input.fields[i].name == name {
+			return &input.fields[i]
+		}
+	}
+	return nil
 }
 
 // Predefined types.
@@ -186,34 +228,27 @@ func (typ *gqlType) Kind() string {
 }
 
 // Name returns the name field for introspection.
-func (typ *gqlType) Name() *string {
-	var name string
+func (typ *gqlType) Name() NullString {
 	switch {
 	case !typ.isNullable():
 		// Non-null is a wrapper.
-		return nil
+		return NullString{}
 	case typ.isScalar():
-		name = typ.scalar
+		return NullString{S: typ.scalar, Valid: true}
 	case typ.isObject():
-		name = typ.obj.name
+		return NullString{S: typ.obj.name, Valid: true}
 	case typ.isEnum():
-		name = typ.enum.name
+		return NullString{S: typ.enum.name, Valid: true}
 	case typ.isInputObject():
-		name = typ.input.name
+		return NullString{S: typ.input.name, Valid: true}
 	default:
-		return nil
+		return NullString{}
 	}
-	return &name
 }
 
 // Description returns the type's documentation.
-func (typ *gqlType) Description() *string {
-	if typ.description == "" {
-		return nil
-	}
-	s := new(string)
-	*s = typ.description
-	return s
+func (typ *gqlType) Description() NullString {
+	return NullString{S: typ.description, Valid: typ.description != ""}
 }
 
 // Fields returns the list of object fields.
@@ -221,11 +256,48 @@ func (typ *gqlType) Fields() *[]objectTypeField {
 	if !typ.isObject() {
 		return nil
 	}
-	var fields []objectTypeField
-	for _, name := range typ.obj.fieldOrder {
-		fields = append(fields, typ.obj.fields[name])
-	}
+	fields := append([]objectTypeField(nil), typ.obj.fields...)
 	return &fields
+}
+
+// Interfaces is not implemented.
+func (typ *gqlType) Interfaces() *[]interface{} {
+	return nil
+}
+
+// PossibleTypes is not implemented.
+func (typ *gqlType) PossibleTypes() *[]interface{} {
+	return nil
+}
+
+// EnumValues returns the list of permitted values for an enumeration type.
+func (typ *gqlType) EnumValues() *[]enumValue {
+	if !typ.isEnum() {
+		return nil
+	}
+	vals := append([]enumValue(nil), typ.enum.values...)
+	return &vals
+}
+
+// InputValues returns the list of input object fields.
+func (typ *gqlType) InputValues() *[]inputValueDefinition {
+	if !typ.isInputObject() {
+		return nil
+	}
+	values := append([]inputValueDefinition(nil), typ.input.fields...)
+	return &values
+}
+
+// OfType returns the element type of non-nullable or list types.
+func (typ *gqlType) OfType() *gqlType {
+	switch {
+	case !typ.isNullable():
+		return typ.toNullable()
+	case typ.isList():
+		return typ.listElem
+	default:
+		return nil
+	}
 }
 
 // isNullable reports whether the type permits null.
@@ -334,13 +406,8 @@ func (f objectTypeField) Name() string {
 	return f.name
 }
 
-func (f objectTypeField) Description() *string {
-	if f.description == "" {
-		return nil
-	}
-	s := new(string)
-	*s = f.description
-	return s
+func (f objectTypeField) Description() NullString {
+	return NullString{S: f.description, Valid: f.description != ""}
 }
 
 func (f objectTypeField) Args() []interface{} {
@@ -355,11 +422,13 @@ func (f objectTypeField) IsDeprecated() bool {
 	return false
 }
 
-func (f objectTypeField) DeprecationReason() *string {
-	return nil
+func (f objectTypeField) DeprecationReason() NullString {
+	return NullString{}
 }
 
 type inputValueDefinition struct {
+	name string
+
 	// defaultValue.typ will always be set. Most of the time, defaultValue
 	// is valid value of the type. However, if the type is non-nullable and
 	// does not have a default, the value will be typed null.

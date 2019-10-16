@@ -96,7 +96,7 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 			case typeByNameFieldName:
 				fval, ferrs = schema.introspectType(ctx, variables, f)
 			default:
-				fval, ferrs = schema.readField(ctx, variables, goValue, f, typ.obj.fields[f.name])
+				fval, ferrs = schema.readField(ctx, variables, goValue, f, typ.obj.field(f.name))
 			}
 			gqlFields = append(gqlFields, Field{Key: f.key, Value: fval})
 			errs = append(errs, ferrs...)
@@ -110,7 +110,7 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 // coerceArgumentValues uses the algorithm in
 // https://graphql.github.io/graphql-spec/June2018/#sec-Coercing-Field-Arguments
 // but assumes the arguments were validated.
-func coerceArgumentValues(source string, variables map[string]Value, fieldInfo objectTypeField, args *gqlang.Arguments) (map[string]Value, []error) {
+func coerceArgumentValues(source string, variables map[string]Value, fieldInfo *objectTypeField, args *gqlang.Arguments) (map[string]Value, []error) {
 	argValues := make(map[string]Value)
 	var errs []error
 	for name, defn := range fieldInfo.args {
@@ -200,7 +200,7 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 		var errs []error
 		for _, field := range inputValue.InputObject.Fields {
 			fieldName := field.Name.Value
-			fieldType := typ.input.fields[fieldName].Type()
+			fieldType := typ.input.field(fieldName).Type()
 			var fieldErrs []error
 			val[fieldName], fieldErrs = coerceInputValue(source, variables, fieldType, field.Value)
 			for _, err := range fieldErrs {
@@ -213,7 +213,7 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 	}
 }
 
-func (schema *Schema) readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, f *SelectedField, defn objectTypeField) (Value, []error) {
+func (schema *Schema) readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, f *SelectedField, defn *objectTypeField) (Value, []error) {
 	// TODO(soon): Search over all fields and/or methods to find case-insensitive match.
 	goName := graphQLToGoFieldName(f.name)
 

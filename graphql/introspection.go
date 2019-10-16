@@ -39,8 +39,8 @@ func typeType() *gqlType {
 	return introspectionSchema().types["__Type"]
 }
 
-func typeByNameField() objectTypeField {
-	return objectTypeField{
+func typeByNameField() *objectTypeField {
+	return &objectTypeField{
 		name: typeByNameFieldName,
 		typ:  typeType(),
 		args: map[string]inputValueDefinition{
@@ -51,8 +51,8 @@ func typeByNameField() objectTypeField {
 	}
 }
 
-func schemaField() objectTypeField {
-	return objectTypeField{
+func schemaField() *objectTypeField {
+	return &objectTypeField{
 		name: schemaFieldName,
 		typ:  typeType(),
 		args: map[string]inputValueDefinition{

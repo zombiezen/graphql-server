@@ -231,7 +231,7 @@ func validateVariableUsage(source string, defns *gqlang.VariableDefinitions, var
 func validateSelectionSet(source string, isRootQuery bool, variables map[string]*validatedVariable, typ *gqlType, set *gqlang.SelectionSet) []error {
 	var errs []error
 	for _, selection := range set.Sel {
-		fieldInfo := typ.obj.fields[selection.Field.Name.Value]
+		fieldInfo := typ.obj.field(selection.Field.Name.Value)
 		if isRootQuery {
 			// Top-level queries have a few extra fields for introspection:
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Schema-Introspection
@@ -243,7 +243,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 			}
 		}
 		loc := astPositionToLocation(selection.Field.Name.Start.ToPosition(source))
-		if fieldInfo.typ == nil {
+		if fieldInfo == nil {
 			// Field not found.
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Field-Selections-on-Objects-Interfaces-and-Unions-Types
 			errs = append(errs, &ResponseError{
@@ -471,7 +471,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 		var errs []error
 		for _, field := range val.InputObject.Fields {
 			name := field.Name.Value
-			if _, exists := typ.input.fields[name]; !exists {
+			if typ.input.field(name) == nil {
 				// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Field-Names
 				errs = append(errs, &ResponseError{
 					Message: fmt.Sprintf("unknown input field %s for %v", name, typ),
@@ -498,11 +498,11 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 			}
 		}
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Required-Fields
-		for name, defn := range typ.input.fields {
-			if len(fieldsByName[name]) == 0 {
+		for _, defn := range typ.input.fields {
+			if len(fieldsByName[defn.name]) == 0 {
 				if !defn.Type().isNullable() && defn.defaultValue.IsNull() {
 					errs = append(errs, &ResponseError{
-						Message: fmt.Sprintf("missing required input field for %v.%s", typ.toNullable(), name),
+						Message: fmt.Sprintf("missing required input field for %v.%s", typ.toNullable(), defn.name),
 						Locations: []Location{
 							astPositionToLocation(val.InputObject.RBrace.ToPosition(source)),
 						},
@@ -510,10 +510,10 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 				}
 				continue
 			}
-			field := fieldsByName[name][0]
+			field := fieldsByName[defn.name][0]
 			if !defn.Type().isNullable() && field.Value.Null != nil {
 				errs = append(errs, &ResponseError{
-					Message: fmt.Sprintf("required input field %v.%s is null", typ.toNullable(), name),
+					Message: fmt.Sprintf("required input field %v.%s is null", typ.toNullable(), defn.name),
 					Locations: []Location{
 						astPositionToLocation(field.Value.Null.Start.ToPosition(source)),
 					},
@@ -522,7 +522,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 			}
 			fieldErrs := validateValue(source, variables, defn.Type(), !defn.defaultValue.IsNull(), field.Value)
 			for _, err := range fieldErrs {
-				errs = append(errs, xerrors.Errorf("input field %s: %w", name, err))
+				errs = append(errs, xerrors.Errorf("input field %s: %w", defn.name, err))
 			}
 		}
 		return errs

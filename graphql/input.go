@@ -222,28 +222,28 @@ func coerceInput(typ *gqlType, input Input) (Value, []error) {
 		valueMap := make(map[string]Value)
 		var errs []error
 		for name := range inputObj {
-			if _, exists := typ.input.fields[name]; !exists {
+			if typ.input.field(name) == nil {
 				// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Field-Names
 				errs = append(errs, xerrors.Errorf("unknown input field %s for %v", name, typ))
 			}
 		}
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Required-Fields
-		for name, defn := range typ.input.fields {
-			if _, hasValue := inputObj[name]; !hasValue {
+		for _, defn := range typ.input.fields {
+			if _, hasValue := inputObj[defn.name]; !hasValue {
 				if !defn.Type().isNullable() && defn.defaultValue.IsNull() {
-					errs = append(errs, xerrors.Errorf("missing required input field for %v.%s", typ.toNullable(), name))
+					errs = append(errs, xerrors.Errorf("missing required input field for %v.%s", typ.toNullable(), defn.name))
 				}
 				continue
 			}
-			field := inputObj[name]
+			field := inputObj[defn.name]
 			if !defn.Type().isNullable() && field.isNull() {
-				errs = append(errs, xerrors.Errorf("required input field %v.%s is null", typ.toNullable(), name))
+				errs = append(errs, xerrors.Errorf("required input field %v.%s is null", typ.toNullable(), defn.name))
 				continue
 			}
 			var fieldErrs []error
-			valueMap[name], fieldErrs = coerceInput(defn.Type(), field)
+			valueMap[defn.name], fieldErrs = coerceInput(defn.Type(), field)
 			for _, err := range fieldErrs {
-				errs = append(errs, xerrors.Errorf("input field %s: %w", name, err))
+				errs = append(errs, xerrors.Errorf("input field %s: %w", defn.name, err))
 			}
 		}
 		if len(errs) > 0 {

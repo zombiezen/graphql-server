@@ -111,8 +111,7 @@ func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[strin
 			typeMap[name.Value] = newScalarType(name.Value, t.Scalar.Description.Value())
 		case t.Enum != nil:
 			info := &enumType{
-				name:    name.Value,
-				symbols: make(map[string]struct{}),
+				name: name.Value,
 			}
 			for _, v := range defn.Type.Enum.Values.Values {
 				sym := v.Value.Value
@@ -122,18 +121,19 @@ func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[strin
 				if info.has(sym) {
 					return nil, xerrors.Errorf("%v: multiple enum values with name %q", sym)
 				}
-				info.symbols[sym] = struct{}{}
+				info.values = append(info.values, enumValue{
+					name:        sym,
+					description: v.Description.Value(),
+				})
 			}
 			typeMap[name.Value] = newEnumType(info, t.Enum.Description.Value())
 		case t.Object != nil:
 			typeMap[name.Value] = newObjectType(&objectType{
-				name:   name.Value,
-				fields: make(map[string]objectTypeField),
+				name: name.Value,
 			}, t.Object.Description.Value())
 		case t.InputObject != nil:
 			typeMap[name.Value] = newInputObjectType(&inputObjectType{
-				name:   name.Value,
-				fields: make(map[string]inputValueDefinition),
+				name: name.Value,
 			}, t.InputObject.Description.Value())
 		}
 	}
@@ -163,7 +163,7 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 		if !internal && strings.HasPrefix(fieldName, reservedPrefix) {
 			return xerrors.Errorf("%v: use of reserved name %q", fieldDefn.Name.Start.ToPosition(source), fieldName)
 		}
-		if _, found := info.fields[fieldName]; found {
+		if info.field(fieldName) != nil {
 			return xerrors.Errorf("%v: multiple fields named %q in %s", fieldDefn.Name.Start.ToPosition(source), fieldName, obj.Name)
 		}
 		typ := resolveTypeRef(typeMap, fieldDefn.Type)
@@ -205,8 +205,7 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 				f.args[argName] = inputValueDefinition{defaultValue: defaultValue}
 			}
 		}
-		info.fields[fieldName] = f
-		info.fieldOrder = append(info.fieldOrder, fieldName)
+		info.fields = append(info.fields, f)
 	}
 	return nil
 }
@@ -218,7 +217,7 @@ func fillInputObjectTypeFields(source string, internal bool, typeMap map[string]
 		if !internal && strings.HasPrefix(fieldName, reservedPrefix) {
 			return xerrors.Errorf("%v: use of reserved name %q", fieldDefn.Name.Start.ToPosition(source), fieldName)
 		}
-		if _, found := info.fields[fieldName]; found {
+		if info.field(fieldName) != nil {
 			return xerrors.Errorf("%v: multiple fields named %q in %s", fieldDefn.Name.Start.ToPosition(source), fieldName, obj.Name)
 		}
 		typ := resolveTypeRef(typeMap, fieldDefn.Type)
@@ -228,13 +227,15 @@ func fillInputObjectTypeFields(source string, internal bool, typeMap map[string]
 		if !typ.isInputType() {
 			return xerrors.Errorf("%v: %v is not an input type", fieldDefn.Type.Start().ToPosition(source), fieldDefn.Type)
 		}
-		var f inputValueDefinition
+		f := inputValueDefinition{
+			name: fieldName,
+		}
 		if fieldDefn.Default != nil {
 			f.defaultValue = coerceConstantInputValue(typ, fieldDefn.Default.Value)
 		} else {
 			f.defaultValue.typ = typ
 		}
-		info.fields[fieldDefn.Name.Value] = f
+		info.fields = append(info.fields, f)
 	}
 	return nil
 }
