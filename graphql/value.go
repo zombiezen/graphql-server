@@ -51,7 +51,7 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 	// Since this function is recursive, caller must prepend error operation.
 
 	goValue = unwrapPointer(goValue)
-	if !goValue.IsValid() {
+	if !goValue.IsValid() || isGraphQLNull(interfaceValueForAssertions(goValue)) {
 		if !typ.isNullable() {
 			return Value{typ: typ}, []error{xerrors.Errorf("cannot convert nil to %v", typ)}
 		}
@@ -317,11 +317,24 @@ func callFieldMethod(ctx context.Context, method reflect.Value, args map[string]
 
 func scalarFromGo(goValue reflect.Value, typ *gqlType) (Value, error) {
 	goValue = unwrapPointer(goValue)
-	if !goValue.IsValid() {
+	goIface := interfaceValueForAssertions(goValue)
+	if !goValue.IsValid() || isGraphQLNull(goIface) {
 		if !typ.isNullable() {
 			return Value{}, xerrors.Errorf("cannot convert nil to %v", typ)
 		}
 		return Value{typ: typ, val: nil}, nil
+	}
+	if marshaler, ok := goIface.(encoding.TextMarshaler); ok {
+		b, err := marshaler.MarshalText()
+		if err != nil {
+			return Value{}, err
+		}
+		// TODO(someday): Ensure marshaled value can be interpreted as the GraphQL type.
+		val := string(b)
+		if typ.isEnum() && !typ.enum.has(val) {
+			return Value{typ: typ}, xerrors.Errorf("%q is not a valid value for %v", val, typ)
+		}
+		return Value{typ: typ, val: val}, nil
 	}
 	switch typ.toNullable() {
 	case booleanType:
@@ -358,16 +371,6 @@ func scalarFromGo(goValue reflect.Value, typ *gqlType) (Value, error) {
 		}
 		fallthrough
 	default:
-		switch goIface := interfaceValueForAssertions(goValue).(type) {
-		case encoding.TextMarshaler:
-			text, err := goIface.MarshalText()
-			if err != nil {
-				return Value{}, err
-			}
-			return Value{typ: typ, val: string(text)}, nil
-		case fmt.Stringer:
-			return Value{typ: typ, val: goIface.String()}, nil
-		}
 		if goValue.Kind() != reflect.String {
 			return Value{typ: typ}, xerrors.Errorf("cannot convert %v to %v", goValue.Type(), typ)
 		}
@@ -393,6 +396,9 @@ func unwrapPointer(v reflect.Value) reflect.Value {
 // if v does not represent a pointer.
 func interfaceValueForAssertions(v reflect.Value) interface{} {
 	v = unwrapPointer(v)
+	if !v.IsValid() {
+		return nil
+	}
 	if v.Kind() == reflect.Interface || !v.CanAddr() {
 		return v.Interface()
 	}

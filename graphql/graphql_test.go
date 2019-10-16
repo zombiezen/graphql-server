@@ -92,7 +92,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "String/Empty",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyString: newString("")}
+				return &testQueryStruct{MyString: NullString{S: "", Valid: true}}
 			},
 			request: Request{Query: `{ myString }`},
 			want: []fieldExpectations{
@@ -102,7 +102,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "String/Nonempty",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyString: newString("foo")}
+				return &testQueryStruct{MyString: NullString{S: "foo", Valid: true}}
 			},
 			request: Request{Query: `{ myString }`},
 			want: []fieldExpectations{
@@ -112,7 +112,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "String/Null",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyString: nil}
+				return &testQueryStruct{MyString: NullString{}}
 			},
 			request: Request{Query: `{ myString }`},
 			want: []fieldExpectations{
@@ -122,7 +122,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Boolean/True",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyBoolean: newBool(true)}
+				return &testQueryStruct{MyBoolean: NullBoolean{Bool: true, Valid: true}}
 			},
 			request: Request{Query: `{ myBoolean }`},
 			want: []fieldExpectations{
@@ -132,7 +132,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Boolean/False",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyBoolean: newBool(false)}
+				return &testQueryStruct{MyBoolean: NullBoolean{Bool: false, Valid: true}}
 			},
 			request: Request{Query: `{ myBoolean }`},
 			want: []fieldExpectations{
@@ -142,7 +142,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Boolean/Null",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyBoolean: nil}
+				return &testQueryStruct{MyBoolean: NullBoolean{}}
 			},
 			request: Request{Query: `{ myBoolean }`},
 			want: []fieldExpectations{
@@ -152,7 +152,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Integer/Int32/Zero",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyInt32: newInt32(0)}
+				return &testQueryStruct{MyInt32: NullInt{Int: 0, Valid: true}}
 			},
 			request: Request{Query: `{ myInt32 }`},
 			want: []fieldExpectations{
@@ -162,7 +162,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Integer/Int32/Positive",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyInt32: newInt32(123)}
+				return &testQueryStruct{MyInt32: NullInt{Int: 123, Valid: true}}
 			},
 			request: Request{Query: `{ myInt32 }`},
 			want: []fieldExpectations{
@@ -172,7 +172,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Integer/Int32/Negative",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyInt32: newInt32(-123)}
+				return &testQueryStruct{MyInt32: NullInt{Int: -123, Valid: true}}
 			},
 			request: Request{Query: `{ myInt32 }`},
 			want: []fieldExpectations{
@@ -182,7 +182,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Integer/Int32/Null",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyInt32: nil}
+				return &testQueryStruct{MyInt32: NullInt{}}
 			},
 			request: Request{Query: `{ myInt32 }`},
 			want: []fieldExpectations{
@@ -232,7 +232,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "ID/Result/Int",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyIntID: newInt(42)}
+				return &testQueryStruct{MyIntID: NullInt{Int: 42, Valid: true}}
 			},
 			request: Request{Query: `{ myIntID }`},
 			want: []fieldExpectations{
@@ -252,7 +252,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "ID/Result/String",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyStringID: newString("aardvark")}
+				return &testQueryStruct{MyStringID: NullString{S: "aardvark", Valid: true}}
 			},
 			request: Request{Query: `{ myStringID }`},
 			want: []fieldExpectations{
@@ -338,7 +338,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Enum/Valid",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyDirection: newString("NORTH")}
+				return &testQueryStruct{MyDirection: NullString{S: "NORTH", Valid: true}}
 			},
 			request: Request{Query: `{ myDirection }`},
 			want: []fieldExpectations{
@@ -348,7 +348,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Enum/Invalid",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyDirection: newString("WEAST")}
+				return &testQueryStruct{MyDirection: NullString{S: "WEAST", Valid: true}}
 			},
 			request: Request{Query: `{ myDirection }`},
 			want: []fieldExpectations{
@@ -454,7 +454,7 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{
 					MyInt:    newInt(42),
-					MyString: newString("hello"),
+					MyString: NullString{S: "hello", Valid: true},
 				}
 			},
 			request: Request{Query: `{
@@ -703,7 +703,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "Object/Alias",
 			queryObject: func(e errorfer) interface{} {
-				return &testQueryStruct{MyInt32: newInt32(42)}
+				return &testQueryStruct{MyInt32: NullInt{Int: 42, Valid: true}}
 			},
 			request: Request{Query: `{ magic: myInt32, myInt: myInt32 }`},
 			want: []fieldExpectations{
@@ -1021,16 +1021,16 @@ func TestExecute(t *testing.T) {
 }
 
 type testQueryStruct struct {
-	MyString     *string
-	MyBoolean    *bool
+	MyString     NullString
+	MyBoolean    NullBoolean
 	MyInt        *int
-	MyInt32      *int32
-	MyIntID      *int
+	MyInt32      NullInt
+	MyIntID      NullInt
 	MyInt64ID    *int64
-	MyStringID   *string
+	MyStringID   NullString
 	MyList       []int32
 	MyObjectList []*testDogStruct
-	MyDirection  *string
+	MyDirection  NullString
 
 	e errorfer
 }
@@ -1425,7 +1425,7 @@ func testObjectValue() Value {
 		panic(err)
 	}
 	queryObject := &testQueryStruct{
-		MyString: newString("xyzzy"),
+		MyString: NullString{S: "xyzzy", Valid: true},
 		MyInt:    newInt(42),
 	}
 	srv, err := NewServer(schema, queryObject, nil)
@@ -1450,7 +1450,7 @@ func testIDObjectValue() Value {
 		panic(err)
 	}
 	queryObject := &testQueryStruct{
-		MyStringID: newString("xyzzy"),
+		MyStringID: NullString{S: "xyzzy", Valid: true},
 		MyInt64ID:  newInt64(42),
 	}
 	srv, err := NewServer(schema, queryObject, nil)
