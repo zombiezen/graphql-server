@@ -113,22 +113,22 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 func coerceArgumentValues(source string, variables map[string]Value, fieldInfo *objectTypeField, args *gqlang.Arguments) (map[string]Value, []error) {
 	argValues := make(map[string]Value)
 	var errs []error
-	for name, defn := range fieldInfo.args {
-		arg := args.ByName(name)
+	for _, defn := range fieldInfo.args {
+		arg := args.ByName(defn.name)
 		if arg == nil {
-			argValues[name] = defn.defaultValue
+			argValues[defn.name] = defn.defaultValue
 			continue
 		}
 		if arg.Value.VariableRef != nil {
 			if _, hasValue := variables[arg.Value.VariableRef.Name.Value]; !hasValue {
-				argValues[name] = defn.defaultValue
+				argValues[defn.name] = defn.defaultValue
 				continue
 			}
 		}
 		var argErrs []error
-		argValues[name], argErrs = coerceInputValue(source, variables, defn.Type(), arg.Value)
+		argValues[defn.name], argErrs = coerceInputValue(source, variables, defn.Type(), arg.Value)
 		for _, err := range argErrs {
-			errs = append(errs, xerrors.Errorf("argument %s: %w", name, err))
+			errs = append(errs, xerrors.Errorf("argument %s: %w", defn.name, err))
 		}
 	}
 	return argValues, errs
@@ -200,7 +200,7 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 		var errs []error
 		for _, field := range inputValue.InputObject.Fields {
 			fieldName := field.Name.Value
-			fieldType := typ.input.field(fieldName).Type()
+			fieldType := typ.input.fields.byName(fieldName).Type()
 			var fieldErrs []error
 			val[fieldName], fieldErrs = coerceInputValue(source, variables, fieldType, field.Value)
 			for _, err := range fieldErrs {

@@ -179,13 +179,12 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 			typ:         typ,
 		}
 		if fieldDefn.Args != nil {
-			f.args = make(map[string]inputValueDefinition)
 			for _, arg := range fieldDefn.Args.Args {
 				argName := arg.Name.Value
 				if !internal && strings.HasPrefix(argName, reservedPrefix) {
 					return xerrors.Errorf("%v: use of reserved name %q", arg.Name.Start.ToPosition(source), argName)
 				}
-				if _, found := f.args[argName]; found {
+				if f.args.byName(argName) != nil {
 					return xerrors.Errorf("%v: multiple arguments named %q for field %s.%s", arg.Name.Start.ToPosition(source), argName, obj.Name, fieldName)
 				}
 				typ := resolveTypeRef(typeMap, arg.Type)
@@ -195,14 +194,17 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 				if !typ.isInputType() {
 					return xerrors.Errorf("%v: %v is not an input type", arg.Type.Start().ToPosition(source), arg.Type)
 				}
-				defaultValue := Value{typ: typ}
+				argDef := inputValueDefinition{
+					name:         argName,
+					defaultValue: Value{typ: typ},
+				}
 				if arg.Default != nil {
 					if errs := validateConstantValue(source, typ, arg.Default.Value); len(errs) > 0 {
 						return errs[0]
 					}
-					defaultValue = coerceConstantInputValue(typ, arg.Default.Value)
+					argDef.defaultValue = coerceConstantInputValue(typ, arg.Default.Value)
 				}
-				f.args[argName] = inputValueDefinition{defaultValue: defaultValue}
+				f.args = append(f.args, argDef)
 			}
 		}
 		info.fields = append(info.fields, f)
@@ -217,7 +219,7 @@ func fillInputObjectTypeFields(source string, internal bool, typeMap map[string]
 		if !internal && strings.HasPrefix(fieldName, reservedPrefix) {
 			return xerrors.Errorf("%v: use of reserved name %q", fieldDefn.Name.Start.ToPosition(source), fieldName)
 		}
-		if info.field(fieldName) != nil {
+		if info.fields.byName(fieldName) != nil {
 			return xerrors.Errorf("%v: multiple fields named %q in %s", fieldDefn.Name.Start.ToPosition(source), fieldName, obj.Name)
 		}
 		typ := resolveTypeRef(typeMap, fieldDefn.Type)

@@ -91,16 +91,7 @@ func (obj *objectType) field(name string) *objectTypeField {
 
 type inputObjectType struct {
 	name   string
-	fields []inputValueDefinition
-}
-
-func (input *inputObjectType) field(name string) *inputValueDefinition {
-	for i := range input.fields {
-		if input.fields[i].name == name {
-			return &input.fields[i]
-		}
-	}
-	return nil
+	fields inputValueDefinitionList
 }
 
 // Predefined types.
@@ -399,19 +390,20 @@ type objectTypeField struct {
 	name        string
 	description string
 	typ         *gqlType
-	args        map[string]inputValueDefinition
+	args        inputValueDefinitionList
 }
 
-func (f objectTypeField) Name() string {
+func (f *objectTypeField) Name() string {
 	return f.name
 }
 
-func (f objectTypeField) Description() NullString {
+func (f *objectTypeField) Description() NullString {
 	return NullString{S: f.description, Valid: f.description != ""}
 }
 
-func (f objectTypeField) Args() []interface{} {
-	return nil
+func (f *objectTypeField) Args() []inputValueDefinition {
+	args := append([]inputValueDefinition(nil), f.args...)
+	return args
 }
 
 func (f objectTypeField) Type() *gqlType {
@@ -441,4 +433,15 @@ type inputValueDefinition struct {
 
 func (ivd inputValueDefinition) Type() *gqlType {
 	return ivd.defaultValue.typ
+}
+
+type inputValueDefinitionList []inputValueDefinition
+
+func (list inputValueDefinitionList) byName(name string) *inputValueDefinition {
+	for i := range list {
+		if list[i].name == name {
+			return &list[i]
+		}
+	}
+	return nil
 }

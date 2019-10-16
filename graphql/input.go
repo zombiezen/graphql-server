@@ -222,7 +222,7 @@ func coerceInput(typ *gqlType, input Input) (Value, []error) {
 		valueMap := make(map[string]Value)
 		var errs []error
 		for name := range inputObj {
-			if typ.input.field(name) == nil {
+			if typ.input.fields.byName(name) == nil {
 				// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Field-Names
 				errs = append(errs, xerrors.Errorf("unknown input field %s for %v", name, typ))
 			}

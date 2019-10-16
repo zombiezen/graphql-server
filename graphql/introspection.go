@@ -43,8 +43,9 @@ func typeByNameField() *objectTypeField {
 	return &objectTypeField{
 		name: typeByNameFieldName,
 		typ:  typeType(),
-		args: map[string]inputValueDefinition{
-			"name": inputValueDefinition{
+		args: []inputValueDefinition{
+			{
+				name:         "name",
 				defaultValue: Value{typ: stringType.toNonNullable()},
 			},
 		},
@@ -54,12 +55,7 @@ func typeByNameField() *objectTypeField {
 func schemaField() *objectTypeField {
 	return &objectTypeField{
 		name: schemaFieldName,
-		typ:  typeType(),
-		args: map[string]inputValueDefinition{
-			"name": inputValueDefinition{
-				defaultValue: Value{typ: stringType.toNonNullable()},
-			},
-		},
+		typ:  schemaType().toNonNullable(),
 	}
 }
 

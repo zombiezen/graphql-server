@@ -301,7 +301,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 	return errs
 }
 
-func validateArguments(source string, variables map[string]*validatedVariable, defns map[string]inputValueDefinition, args *gqlang.Arguments) []error {
+func validateArguments(source string, variables map[string]*validatedVariable, defns inputValueDefinitionList, args *gqlang.Arguments) []error {
 	var argumentNames []string
 	argumentsByName := make(map[string][]*gqlang.Argument)
 	var endLocation []Location
@@ -316,7 +316,7 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 		}
 		for _, name := range argumentNames {
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Argument-Names
-			if defns[name].Type() == nil {
+			if defns.byName(name) == nil {
 				err := &ResponseError{
 					Message: fmt.Sprintf("unknown argument %s", name),
 				}
@@ -343,23 +343,23 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 		}
 	}
 	// https://graphql.github.io/graphql-spec/June2018/#sec-Required-Arguments
-	for name, defn := range defns {
+	for _, defn := range defns {
 		if defn.Type().isNullable() {
 			continue
 		}
-		if len(argumentsByName[name]) == 0 {
+		if len(argumentsByName[defn.name]) == 0 {
 			if defn.defaultValue.IsNull() {
 				errs = append(errs, &ResponseError{
-					Message:   fmt.Sprintf("missing required argument %s", name),
+					Message:   fmt.Sprintf("missing required argument %s", defn.name),
 					Locations: endLocation,
 				})
 			}
 			continue
 		}
-		arg := argumentsByName[name][0]
+		arg := argumentsByName[defn.name][0]
 		if arg.Value.Null != nil {
 			errs = append(errs, &ResponseError{
-				Message: fmt.Sprintf("required argument %s cannot be null", name),
+				Message: fmt.Sprintf("required argument %s cannot be null", defn.name),
 				Locations: []Location{
 					astPositionToLocation(arg.Value.Null.Start.ToPosition(source)),
 				},
@@ -370,14 +370,14 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 	if len(errs) > 0 {
 		return errs
 	}
-	for name, defn := range defns {
-		args := argumentsByName[name]
+	for _, defn := range defns {
+		args := argumentsByName[defn.name]
 		if len(args) == 0 {
 			continue
 		}
 		argErrs := validateValue(source, variables, defn.Type(), !defn.defaultValue.IsNull(), args[0].Value)
 		for _, err := range argErrs {
-			errs = append(errs, xerrors.Errorf("argument %s: %w", name, err))
+			errs = append(errs, xerrors.Errorf("argument %s: %w", defn.name, err))
 		}
 	}
 	return errs
@@ -471,7 +471,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 		var errs []error
 		for _, field := range val.InputObject.Fields {
 			name := field.Name.Value
-			if typ.input.field(name) == nil {
+			if typ.input.fields.byName(name) == nil {
 				// https://graphql.github.io/graphql-spec/June2018/#sec-Input-Object-Field-Names
 				errs = append(errs, &ResponseError{
 					Message: fmt.Sprintf("unknown input field %s for %v", name, typ),
