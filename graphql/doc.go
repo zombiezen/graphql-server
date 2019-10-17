@@ -19,6 +19,9 @@ Package graphql provides a GraphQL execution engine. During execution, a GraphQL
 server transforms requests into Go method calls and struct field accesses. This
 package follows the specification laid out at https://graphql.github.io/graphql-spec/June2018/
 
+For the common case where you are serving GraphQL over HTTP, see the graphqlhttp
+package in this module.
+
 Methods
 
 Field methods must have the following signature (with square brackets
