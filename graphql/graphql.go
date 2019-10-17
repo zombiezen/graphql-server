@@ -50,6 +50,9 @@ func NewServer(schema *Schema, query, mutation interface{}) (*Server, error) {
 	if schema.mutation != nil && !srv.mutation.IsValid() {
 		return nil, xerrors.New("new server: schema specified mutation type, but no mutation object given")
 	}
+	if schema.mutation == nil && srv.mutation.IsValid() {
+		return nil, xerrors.New("new server: mutation object given, but no mutation type")
+	}
 	return srv, nil
 }
 
