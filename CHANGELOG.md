@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 -  Scalar types
+-  Enum types
 -  List types
 -  Input object types
 -  Field arguments
@@ -15,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  Field methods can inspect their selection set
 -  Schema validation
 -  Validation
+-  Introspection (although GraphQL playgrounds tend to use fragments, which
+   aren't implemented yet)
 -  Marshaling of Go types into GraphQL output types
 -  Context propagation
 -  Precise error reporting
@@ -30,3 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  Concurrent field resolution
 -  Validation for custom scalar types
 -  Unmarshaling of arguments into Go types
+-  Verification of Go types as result types
+-  Metrics and trace spans
+-  Explicit `schema` blocks
