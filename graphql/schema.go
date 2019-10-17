@@ -32,6 +32,7 @@ type Schema struct {
 }
 
 // ParseSchema parses a GraphQL document containing type definitions.
+// It is assumed that the schema is trusted.
 func ParseSchema(source string) (*Schema, error) {
 	return parseSchema(source, false)
 }
