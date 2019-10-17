@@ -25,9 +25,10 @@ import (
 
 // Schema is a parsed set of type definitions.
 type Schema struct {
-	query    *gqlType
-	mutation *gqlType
-	types    map[string]*gqlType
+	query     *gqlType
+	mutation  *gqlType
+	types     map[string]*gqlType
+	typeOrder []string
 }
 
 // ParseSchema parses a GraphQL document containing type definitions.
@@ -50,9 +51,13 @@ func parseSchema(source string, internal bool) (*Schema, error) {
 		}
 		return nil, xerrors.New(msgBuilder.String())
 	}
+	var typeOrder []string
 	for _, defn := range doc.Definitions {
 		if defn.Operation != nil {
 			return nil, xerrors.Errorf("parse schema: %v: operations not allowed", defn.Operation.Start.ToPosition(source))
+		}
+		if defn.Type != nil {
+			typeOrder = append(typeOrder, defn.Type.Name().String())
 		}
 	}
 	typeMap, err := buildTypeMap(source, internal, doc)
@@ -60,9 +65,10 @@ func parseSchema(source string, internal bool) (*Schema, error) {
 		return nil, xerrors.Errorf("parse schema: %v", err)
 	}
 	schema := &Schema{
-		query:    typeMap["Query"],
-		mutation: typeMap["Mutation"],
-		types:    typeMap,
+		query:     typeMap["Query"],
+		mutation:  typeMap["Mutation"],
+		types:     typeMap,
+		typeOrder: typeOrder,
 	}
 	if !internal {
 		if schema.query == nil {

@@ -23,17 +23,18 @@ import (
 
 func TestIntrospection(t *testing.T) {
 	tests := []struct {
-		name    string
-		schema  string
-		request Request
-		want    []fieldExpectations
+		name        string
+		schema      string
+		hasMutation bool
+		request     Request
+		want        []fieldExpectations
 	}{
 		{
 			// https://graphql.github.io/graphql-spec/June2018/#example-00283
 			name: "Type/User",
 			schema: `
 				type Query {
-					user: User
+					foo: String
 				}
 
 				type User {
@@ -138,6 +139,61 @@ func TestIntrospection(t *testing.T) {
 				}}},
 			},
 		},
+		{
+			name: "Schema/QueryAndMutation",
+			schema: `
+				type Query {
+					foo: String
+				}
+
+				type Mutation {
+					foo: String
+				}
+
+				scalar Foo
+			`,
+			hasMutation: true,
+			request: Request{
+				Query: `{
+					__schema {
+						queryType {
+							name
+						}
+						mutationType {
+							name
+						}
+						subscriptionType {
+							name
+						}
+						types {
+							name
+						}
+					}
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "__schema", value: valueExpectations{object: []fieldExpectations{
+					{key: "queryType", value: valueExpectations{object: []fieldExpectations{
+						{key: "name", value: valueExpectations{scalar: "Query"}},
+					}}},
+					{key: "mutationType", value: valueExpectations{object: []fieldExpectations{
+						{key: "name", value: valueExpectations{scalar: "Mutation"}},
+					}}},
+					{key: "subscriptionType", value: valueExpectations{null: true}},
+					{key: "types", value: valueExpectations{list: []valueExpectations{
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "Query"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "Mutation"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "Foo"}},
+						}},
+					}}},
+				}}},
+			},
+		},
 	}
 
 	ctx := context.Background()
@@ -147,7 +203,11 @@ func TestIntrospection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			srv, err := NewServer(schema, new(introspectionQuery), nil)
+			var mutation interface{}
+			if test.hasMutation {
+				mutation = new(introspectionQuery)
+			}
+			srv, err := NewServer(schema, new(introspectionQuery), mutation)
 			if err != nil {
 				t.Fatal(err)
 			}

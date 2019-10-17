@@ -59,6 +59,26 @@ func schemaField() *objectTypeField {
 	}
 }
 
+// schemaObject is a representation of __Schema.
+type schemaObject struct {
+	Types            []*gqlType
+	QueryType        *gqlType
+	MutationType     *gqlType
+	SubscriptionType *gqlType
+	Directives       *[]interface{}
+}
+
+func (schema *Schema) introspectSchema(ctx context.Context, variables map[string]Value, field *SelectedField) (Value, []error) {
+	s := &schemaObject{
+		QueryType:    schema.query,
+		MutationType: schema.mutation,
+	}
+	for _, name := range schema.typeOrder {
+		s.Types = append(s.Types, schema.types[name])
+	}
+	return schema.valueFromGo(ctx, variables, reflect.ValueOf(s), schemaType().toNonNullable(), field.SelectionSet())
+}
+
 // introspectType implements the "__type" field at the root of a query.
 func (schema *Schema) introspectType(ctx context.Context, variables map[string]Value, field *SelectedField) (Value, []error) {
 	name := field.Arg("name").Scalar()

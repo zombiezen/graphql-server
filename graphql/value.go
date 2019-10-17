@@ -93,6 +93,8 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 			// Validation determines whether this is a valid reference to the
 			// reserved fields.
 			switch f.name {
+			case schemaFieldName:
+				fval, ferrs = schema.introspectSchema(ctx, variables, f)
 			case typeByNameFieldName:
 				fval, ferrs = schema.introspectType(ctx, variables, f)
 			default:
