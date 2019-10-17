@@ -232,7 +232,9 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 	var errs []error
 	for _, selection := range set.Sel {
 		fieldInfo := typ.obj.field(selection.Field.Name.Value)
-		if isRootQuery {
+		if selection.Field.Name.Value == typeNameFieldName {
+			fieldInfo = typeNameField()
+		} else if isRootQuery {
 			// Top-level queries have a few extra fields for introspection:
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Schema-Introspection
 			switch selection.Field.Name.Value {

@@ -194,6 +194,30 @@ func TestIntrospection(t *testing.T) {
 				}}},
 			},
 		},
+		{
+			name: "Typename",
+			schema: `
+				type Query {
+					myObject: MyType!
+				}
+
+				type MyType {
+					bar: String
+				}
+			`,
+			request: Request{
+				Query: `{
+					__typename
+					myObject { __typename }
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "__typename", value: valueExpectations{scalar: "Query"}},
+				{key: "myObject", value: valueExpectations{object: []fieldExpectations{
+					{key: "__typename", value: valueExpectations{scalar: "MyType"}},
+				}}},
+			},
+		},
 	}
 
 	ctx := context.Background()
@@ -203,11 +227,17 @@ func TestIntrospection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			query := &introspectionQuery{
+				Foo: "foo",
+				MyObject: &introspectionMyType{
+					Bar: "bar",
+				},
+			}
 			var mutation interface{}
 			if test.hasMutation {
-				mutation = new(introspectionQuery)
+				mutation = query
 			}
-			srv, err := NewServer(schema, new(introspectionQuery), mutation)
+			srv, err := NewServer(schema, query, mutation)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -222,5 +252,10 @@ func TestIntrospection(t *testing.T) {
 }
 
 type introspectionQuery struct {
-	Foo string
+	Foo      string
+	MyObject *introspectionMyType
+}
+
+type introspectionMyType struct {
+	Bar string
 }

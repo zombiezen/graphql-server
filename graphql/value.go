@@ -93,6 +93,12 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 			// Validation determines whether this is a valid reference to the
 			// reserved fields.
 			switch f.name {
+			case typeNameFieldName:
+				// TODO(someday): Check dynamic type of object.
+				fval = Value{
+					typ: stringType.toNonNullable(),
+					val: typ.toNullable().String(),
+				}
 			case schemaFieldName:
 				fval, ferrs = schema.introspectSchema(ctx, variables, f)
 			case typeByNameFieldName:

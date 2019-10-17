@@ -39,6 +39,13 @@ func typeType() *gqlType {
 	return introspectionSchema().types["__Type"]
 }
 
+func typeNameField() *objectTypeField {
+	return &objectTypeField{
+		name: typeNameFieldName,
+		typ:  stringType.toNonNullable(),
+	}
+}
+
 func typeByNameField() *objectTypeField {
 	return &objectTypeField{
 		name: typeByNameFieldName,

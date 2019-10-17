@@ -41,10 +41,12 @@ func newSelectionSet(source string, variables map[string]Value, typ *objectType,
 			// Validation determines whether this is a valid reference to the
 			// reserved fields.
 			switch name {
-			case typeByNameFieldName:
-				fieldInfo = typeByNameField()
+			case typeNameFieldName:
+				fieldInfo = typeNameField()
 			case schemaFieldName:
 				fieldInfo = schemaField()
+			case typeByNameFieldName:
+				fieldInfo = typeByNameField()
 			}
 			field := &SelectedField{
 				name: name,
