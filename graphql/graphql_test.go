@@ -37,10 +37,9 @@ func TestExecute(t *testing.T) {
 			myBoolean: Boolean
 			myInt: Int
 			myInt32: Int
-			# TODO(soon): s/ID/Id/ to match GraphQL conventions.
-			myIntID: ID
-			myInt64ID: ID
-			myStringID: ID
+			myIntId: ID
+			myInt64Id: ID
+			myStringId: ID
 			myList: [Int!]!
 			myObjectList: [Dog!]!
 			myDirection: Direction
@@ -234,9 +233,9 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyIntID: NullInt{Int: 42, Valid: true}}
 			},
-			request: Request{Query: `{ myIntID }`},
+			request: Request{Query: `{ myIntId }`},
 			want: []fieldExpectations{
-				{key: "myIntID", value: valueExpectations{scalar: "42"}},
+				{key: "myIntId", value: valueExpectations{scalar: "42"}},
 			},
 		},
 		{
@@ -244,9 +243,9 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyInt64ID: newInt64(42)}
 			},
-			request: Request{Query: `{ myInt64ID }`},
+			request: Request{Query: `{ myInt64Id }`},
 			want: []fieldExpectations{
-				{key: "myInt64ID", value: valueExpectations{scalar: "42"}},
+				{key: "myInt64Id", value: valueExpectations{scalar: "42"}},
 			},
 		},
 		{
@@ -254,9 +253,9 @@ func TestExecute(t *testing.T) {
 			queryObject: func(e errorfer) interface{} {
 				return &testQueryStruct{MyStringID: NullString{S: "aardvark", Valid: true}}
 			},
-			request: Request{Query: `{ myStringID }`},
+			request: Request{Query: `{ myStringId }`},
 			want: []fieldExpectations{
-				{key: "myStringID", value: valueExpectations{scalar: "aardvark"}},
+				{key: "myStringId", value: valueExpectations{scalar: "aardvark"}},
 			},
 		},
 		{
@@ -1136,8 +1135,7 @@ func (q *testQueryStruct) ErrorMethod() (string, error) {
 	return "xyzzy", xerrors.New("I have failed")
 }
 
-func (q *testQueryStruct) IdArgument(args map[string]Value) string {
-	// TODO(soon): s/Id/ID/ when case-insensitive matching is introduced.
+func (q *testQueryStruct) IDArgument(args map[string]Value) string {
 	return args["id"].Scalar()
 }
 
@@ -1380,8 +1378,8 @@ func TestResponseMarshalJSON(t *testing.T) {
 				json.Delim('{'),
 				"data",
 				json.Delim('{'),
-				"myStringID", "xyzzy",
-				"myInt64ID", "42",
+				"myStringId", "xyzzy",
+				"myInt64Id", "42",
 				json.Delim('}'),
 				json.Delim('}'),
 			},
@@ -1440,10 +1438,9 @@ func testObjectValue() Value {
 
 func testIDObjectValue() Value {
 	schema, err := ParseSchema(`
-		# TODO(soon): s/ID/Id/ to match GraphQL conventions.
 		type Query {
-			myStringID: ID
-			myInt64ID: ID
+			myStringId: ID
+			myInt64Id: ID
 		}
 	`)
 	if err != nil {
@@ -1458,7 +1455,7 @@ func testIDObjectValue() Value {
 		panic(err)
 	}
 	response := srv.Execute(context.Background(), Request{
-		Query: `{ myStringID, myInt64ID }`,
+		Query: `{ myStringId, myInt64Id }`,
 	})
 	return response.Data
 }

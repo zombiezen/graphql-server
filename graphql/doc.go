@@ -34,7 +34,8 @@ The args parameter will be a map filled with the arguments passed to the field.
 The sel parameter is only passed to fields that return an object or list of
 objects type and permits the method to peek into what fields will be evaluated
 on its return value. This is useful for avoiding querying for data that won't
-be used in the response.
+be used in the response. The method must be exported, but otherwise methods are
+matched with fields ignoring case.
 
 Scalars
 

@@ -83,7 +83,11 @@ func (schema *Schema) introspectSchema(ctx context.Context, variables map[string
 	for _, name := range schema.typeOrder {
 		s.Types = append(s.Types, schema.types[name])
 	}
-	return schema.valueFromGo(ctx, variables, reflect.ValueOf(s), schemaType().toNonNullable(), field.SelectionSet())
+	v, errs := schema.valueFromGo(ctx, variables, reflect.ValueOf(s), schemaType().toNonNullable(), field.SelectionSet())
+	for i, err := range errs {
+		errs[i] = wrapFieldError(field.key, field.loc, err)
+	}
+	return v, errs
 }
 
 // introspectType implements the "__type" field at the root of a query.
@@ -94,7 +98,11 @@ func (schema *Schema) introspectType(ctx context.Context, variables map[string]V
 		// Not found; return null.
 		return Value{typ: typeType()}, nil
 	}
-	return schema.valueFromGo(ctx, variables, reflect.ValueOf(typ), typeType(), field.SelectionSet())
+	v, errs := schema.valueFromGo(ctx, variables, reflect.ValueOf(typ), typeType(), field.SelectionSet())
+	for i, err := range errs {
+		errs[i] = wrapFieldError(field.key, field.loc, err)
+	}
+	return v, errs
 }
 
 var introspect struct {

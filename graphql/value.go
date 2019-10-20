@@ -86,6 +86,14 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 			return Value{typ: typ, val: []Field(nil)}, nil
 		}
 		gqlFields := make([]Field, 0, len(sel.fields))
+		goValue = valueForAssertions(goValue)
+		desc := schema.typeDescriptor(typeKey{
+			goType:  goValue.Type(),
+			gqlType: typ.obj,
+		})
+		if desc.err != nil {
+			return Value{typ: typ}, []error{desc.err}
+		}
 		var errs []error
 		for _, f := range sel.fields {
 			var fval Value
@@ -104,7 +112,7 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 			case typeByNameFieldName:
 				fval, ferrs = schema.introspectType(ctx, variables, f)
 			default:
-				fval, ferrs = schema.readField(ctx, variables, goValue, f, typ.obj.field(f.name))
+				fval, ferrs = schema.readField(ctx, variables, goValue, desc.fields[f.name], typ.obj.field(f.name).typ, f)
 			}
 			gqlFields = append(gqlFields, Field{Key: f.key, Value: fval})
 			errs = append(errs, ferrs...)
@@ -221,51 +229,19 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 	}
 }
 
-func (schema *Schema) readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, f *SelectedField, defn *objectTypeField) (Value, []error) {
-	// TODO(soon): Search over all fields and/or methods to find case-insensitive match.
-	goName := graphQLToGoFieldName(f.name)
-
-	if len(defn.args) == 0 && goValue.Kind() == reflect.Struct {
-		if fieldValue := goValue.FieldByName(goName); fieldValue.IsValid() {
-			v, errs := schema.valueFromGo(ctx, variables, fieldValue, defn.typ, f.sub)
-			if len(errs) > 0 {
-				for i := range errs {
-					errs[i] = wrapFieldError(f.key, f.loc, errs[i])
-				}
-				return Value{typ: defn.typ}, errs
-			}
-			return v, nil
-		}
-	}
-	method := findFieldMethod(goValue, f.name)
-	if !method.IsValid() {
-		return Value{typ: defn.typ}, []error{&ResponseError{
-			Message:   fmt.Sprintf("no such method or field %q on %v", f.name, goValue.Type()),
-			Locations: []Location{f.loc},
-			Path:      []PathSegment{{Field: f.key}},
-		}}
-	}
-	methodResult, err := callFieldMethod(ctx, method, f.args, f.sub, defn.typ.selectionSetType() != nil)
+func (schema *Schema) readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, fdesc fieldDescriptor, typ *gqlType, f *SelectedField) (Value, []error) {
+	result, err := fdesc.read(ctx, valueForAssertions(goValue), f.args, f.sub)
 	if err != nil {
-		return Value{typ: defn.typ}, []error{wrapFieldError(f.key, f.loc, err)}
+		return Value{typ: typ}, []error{wrapFieldError(f.key, f.loc, err)}
 	}
-	ret, errs := schema.valueFromGo(ctx, variables, methodResult, defn.typ, f.sub)
+	v, errs := schema.valueFromGo(ctx, variables, result, typ, f.sub)
 	if len(errs) > 0 {
 		for i := range errs {
 			errs[i] = wrapFieldError(f.key, f.loc, errs[i])
 		}
+		return Value{typ: typ}, errs
 	}
-	return ret, errs
-}
-
-func findFieldMethod(v reflect.Value, name string) reflect.Value {
-	// TODO(soon): Search over all fields and/or methods to find case-insensitive match.
-
-	v = unwrapPointer(v)
-	if v.Kind() != reflect.Interface && v.CanAddr() {
-		v = v.Addr()
-	}
-	return v.MethodByName(graphQLToGoFieldName(name))
+	return v, nil
 }
 
 var (
@@ -274,54 +250,6 @@ var (
 	selectionSetGoType = reflect.TypeOf(new(*SelectionSet)).Elem()
 	errorGoType        = reflect.TypeOf(new(error)).Elem()
 )
-
-func callFieldMethod(ctx context.Context, method reflect.Value, args map[string]Value, sel *SelectionSet, passSel bool) (reflect.Value, error) {
-	// TODO(someday): Include type and method names in signature error messages.
-
-	mtype := method.Type()
-	numIn := mtype.NumIn()
-	var callArgs []reflect.Value
-	if len(callArgs) < numIn && mtype.In(len(callArgs)) == contextGoType {
-		callArgs = append(callArgs, reflect.ValueOf(ctx))
-	}
-	if len(callArgs) < numIn && mtype.In(len(callArgs)) == argsGoType {
-		callArgs = append(callArgs, reflect.ValueOf(args))
-	}
-	if passSel {
-		if len(callArgs) < numIn && mtype.In(len(callArgs)) == selectionSetGoType {
-			callArgs = append(callArgs, reflect.ValueOf(sel))
-		}
-	}
-	if len(callArgs) != numIn {
-		return reflect.Value{}, xerrors.New("server method: wrong parameter signature")
-	}
-
-	switch mtype.NumOut() {
-	case 1:
-		if mtype.Out(0) == errorGoType {
-			return reflect.Value{}, xerrors.New("server method: return type must not be error")
-		}
-		out := method.Call(callArgs)
-		return out[0], nil
-	case 2:
-		if mtype.Out(0) == errorGoType {
-			return reflect.Value{}, xerrors.New("server method: first return type must not be error")
-		}
-		if got := mtype.Out(1); got != errorGoType {
-			return reflect.Value{}, xerrors.Errorf("server method: second return type must be error (found %v)", got)
-		}
-		out := method.Call(callArgs)
-		if !out[1].IsNil() {
-			// Intentionally making the returned error opaque to avoid interference in
-			// toResponseError.
-			err := out[1].Interface().(error)
-			return reflect.Value{}, xerrors.Errorf("server error: %v", err)
-		}
-		return out[0], nil
-	default:
-		return reflect.Value{}, xerrors.New("server method: wrong return signature")
-	}
-}
 
 func scalarFromGo(goValue reflect.Value, typ *gqlType) (Value, error) {
 	goValue = unwrapPointer(goValue)
@@ -400,17 +328,24 @@ func unwrapPointer(v reflect.Value) reflect.Value {
 	return v
 }
 
+// valueForAssertions returns the value's innermost pointer or v itself
+// if v does not represent a pointer.
+func valueForAssertions(v reflect.Value) reflect.Value {
+	v = unwrapPointer(v)
+	if !v.IsValid() || v.Kind() == reflect.Interface || !v.CanAddr() {
+		return v
+	}
+	return v.Addr()
+}
+
 // interfaceValueForAssertions returns the value's innermost pointer or v itself
 // if v does not represent a pointer.
 func interfaceValueForAssertions(v reflect.Value) interface{} {
-	v = unwrapPointer(v)
+	v = valueForAssertions(v)
 	if !v.IsValid() {
 		return nil
 	}
-	if v.Kind() == reflect.Interface || !v.CanAddr() {
-		return v.Interface()
-	}
-	return v.Addr().Interface()
+	return v.Interface()
 }
 
 // GoValue dumps the value into one of the following Go types:
@@ -558,11 +493,4 @@ func (v Value) MarshalJSON() ([]byte, error) {
 	default:
 		panic("unknown type in Value.typ")
 	}
-}
-
-func graphQLToGoFieldName(name string) string {
-	if c := name[0]; 'a' <= c && c <= 'z' {
-		return string(c-'a'+'A') + name[1:]
-	}
-	return name
 }

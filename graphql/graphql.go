@@ -43,6 +43,7 @@ func NewServer(schema *Schema, query, mutation interface{}) (*Server, error) {
 		query:    reflect.ValueOf(query),
 		mutation: reflect.ValueOf(mutation),
 	}
+	// Check for missing or extra arguments first.
 	if !srv.query.IsValid() {
 		return nil, xerrors.New("new server: query is required")
 	}
@@ -51,6 +52,23 @@ func NewServer(schema *Schema, query, mutation interface{}) (*Server, error) {
 	}
 	if schema.mutation == nil && srv.mutation.IsValid() {
 		return nil, xerrors.New("new server: mutation object given, but no mutation type")
+	}
+	// Next check for type errors with the values provided.
+	err := schema.typeDescriptor(typeKey{
+		goType:  srv.query.Type(),
+		gqlType: schema.query.obj,
+	}).err
+	if err != nil {
+		return nil, xerrors.Errorf("new server: can't use %v for query: %w", srv.query.Type(), err)
+	}
+	if schema.mutation != nil {
+		err := schema.typeDescriptor(typeKey{
+			goType:  srv.mutation.Type(),
+			gqlType: schema.mutation.obj,
+		}).err
+		if err != nil {
+			return nil, xerrors.Errorf("new server: can't use %v for mutation: %w", srv.mutation.Type(), err)
+		}
 	}
 	return srv, nil
 }
