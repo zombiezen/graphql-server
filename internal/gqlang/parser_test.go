@@ -643,6 +643,109 @@ input ItemInput {
 				},
 			},
 		},
+		{
+			name:  "UnterminatedString/Block",
+			input: `"""foo`,
+			wantErrs: posSet{
+				6: {},
+			},
+		},
+		{
+			name:  "UnterminatedString/JustBlockStart",
+			input: `"""`,
+			wantErrs: posSet{
+				3: {},
+			},
+		},
+		{
+			name:  "UnterminatedString/BlockWithEscape",
+			input: `"""foo\"""`,
+			wantErrs: posSet{
+				10: {},
+			},
+		},
+		{
+			name:  "UnterminatedString/LineBreakEmpty",
+			input: "\"\nscalar Bar",
+			wantErrs: posSet{
+				1: {},
+			},
+		},
+		{
+			name:  "UnterminatedString/LineBreak",
+			input: "\"foo\nscalar Bar",
+			wantErrs: posSet{
+				4: {},
+			},
+		},
+		{
+			name:  "StringEscape/EndsWithDoubleBackslash",
+			input: `"foo\\" scalar Bar`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{Scalar: &ScalarTypeDefinition{
+						Description: &Description{
+							Start: 0,
+							Raw:   `"foo\\"`,
+						},
+						Keyword: 8,
+						Name: &Name{
+							Start: 15,
+							Value: "Bar",
+						},
+					}}},
+				},
+			},
+		},
+		{
+			name:  "StringEscape/BadSequence",
+			input: `"foo\hbar" scalar Bar`,
+			wantErrs: posSet{
+				5: {},
+			},
+		},
+		{
+			name:  "StringEscape/HexSequence",
+			input: `"foo\ubeef" scalar Bar`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{Scalar: &ScalarTypeDefinition{
+						Description: &Description{
+							Start: 0,
+							Raw:   `"foo\ubeef"`,
+						},
+						Keyword: 12,
+						Name: &Name{
+							Start: 19,
+							Value: "Bar",
+						},
+					}}},
+				},
+			},
+		},
+		{
+			name:  "StringEscape/HexSequenceAtEnd",
+			input: `"foo\u" scalar Bar`,
+			wantErrs: posSet{
+				6: {},
+			},
+		},
+		{
+			name:  "StringEscape/BadHexSequence",
+			input: `"foo\u0xyz" scalar Bar`,
+			wantErrs: posSet{
+				7: {},
+				8: {},
+				9: {},
+			},
+		},
+		{
+			name:  "StringEscape/DoubleQuoteAtEnd",
+			input: "\"foo\\\"\n scalar Bar",
+			wantErrs: posSet{
+				6: {},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

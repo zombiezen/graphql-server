@@ -31,14 +31,16 @@ func Parse(input string) (*Document, []error) {
 	}
 	var errs []error
 	for _, tok := range p.tokens {
-		if tok.kind == unknown {
+		switch tok.kind {
+		case unknown:
 			errs = append(errs, &posError{
 				input: input,
 				pos:   tok.start,
 				err:   xerrors.Errorf("unrecognized symbol %q", tok.source),
 			})
+		case stringValue:
+			errs = append(errs, validateStringToken(input, tok)...)
 		}
-		// TODO(soon): Check for improperly terminated strings.
 	}
 	if len(errs) > 0 {
 		return nil, errs

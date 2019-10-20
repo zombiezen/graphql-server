@@ -19,6 +19,8 @@ package gqlang
 import (
 	"fmt"
 	"strings"
+
+	"golang.org/x/xerrors"
 )
 
 type lexer struct {
@@ -140,6 +142,81 @@ func (l *lexer) blockString() token {
 		// Move past escape.
 		i += j + len(marker)
 	}
+}
+
+func validateStringToken(input string, tok token) []error {
+	if strings.HasPrefix(tok.source, `"""`) {
+		rest := tok.source[3:]
+		if strings.HasSuffix(rest, `\"""`) || !strings.HasSuffix(rest, `"""`) {
+			return []error{&posError{
+				input: input,
+				pos:   tok.end(),
+				err:   xerrors.New("unterminated string constant"),
+			}}
+		}
+		return nil
+	}
+
+	rest := tok.source[1:]
+	var errs []error
+findEscapes:
+	for {
+		backslash := strings.IndexByte(rest, '\\')
+		if backslash == -1 {
+			break
+		}
+		if backslash+2 > len(rest) {
+			rest = ""
+			break
+		}
+		const escapeLen = 2
+		switch rest[backslash+1] {
+		case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
+			rest = rest[backslash+escapeLen:]
+		case 'u':
+			const unicodeEscapeLen = escapeLen + 4
+			for i := backslash + escapeLen; i < backslash+unicodeEscapeLen && i < len(rest); i++ {
+				switch c := rest[i]; {
+				case '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F':
+					// Good
+				case c == '"':
+					// Should only happen at end of string
+					errs = append(errs, &posError{
+						input: input,
+						pos:   tok.start + Pos(len(tok.source)-len(rest)+i),
+						err:   xerrors.New("expected hex digit, got '\"'"),
+					})
+					return errs
+				default:
+					errs = append(errs, &posError{
+						input: input,
+						pos:   tok.start + Pos(len(tok.source)-len(rest)+i),
+						err:   xerrors.Errorf("expected hex digit, found %q", c),
+					})
+				}
+			}
+			if backslash+unicodeEscapeLen > len(rest) {
+				rest = ""
+				break findEscapes
+			}
+			rest = rest[backslash+unicodeEscapeLen:]
+		default:
+			errs = append(errs, &posError{
+				input: input,
+				pos:   tok.start + Pos(len(tok.source)-len(rest)+backslash+1),
+				err:   xerrors.Errorf("invalid string escape character %q", rest[backslash+1]),
+			})
+			rest = rest[backslash+escapeLen:]
+		}
+	}
+	if !strings.HasSuffix(rest, `"`) {
+		errs = append(errs, &posError{
+			input: input,
+			pos:   tok.end(),
+			err:   xerrors.New("unterminated string constant"),
+		})
+	}
+	return errs
 }
 
 // number parses either an integer or a floating-point literal (both start with an integer).
