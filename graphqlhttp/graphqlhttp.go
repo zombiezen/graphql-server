@@ -42,25 +42,27 @@ func NewHandler(server *graphql.Server) *Handler {
 
 // ServeHTTP executes a GraphQL request.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	gqlRequest, err := Parse(r)
+	gqlRequest, err := Parse(h.server.Schema(), r)
 	if err != nil {
 		code := StatusCode(err)
 		if code == http.StatusMethodNotAllowed {
 			w.Header().Set("Allow", "GET, HEAD, POST")
 		}
 		http.Error(w, err.Error(), code)
+		return
 	}
 	gqlResponse := h.server.Execute(r.Context(), gqlRequest)
 	WriteResponse(w, gqlResponse)
 }
 
 // Parse parses a GraphQL HTTP request. If an error is returned, StatusCode
-// will return the proper HTTP status code to use.
+// will return the proper HTTP status code to use. Parse may return a validated
+// query, but it may not always do so.
 //
 // Request methods may be GET, HEAD, or POST. If the method is not one of these,
 // then an error is returned that will make StatusCode return
 // http.StatusMethodNotAllowed.
-func Parse(r *http.Request) (graphql.Request, error) {
+func Parse(schema *graphql.Schema, r *http.Request) (graphql.Request, error) {
 	request := graphql.Request{
 		Query: r.URL.Query().Get("query"),
 	}
@@ -76,7 +78,16 @@ func Parse(r *http.Request) (graphql.Request, error) {
 			}
 		}
 		request.OperationName = r.FormValue("operationName")
-		if !request.IsQuery() {
+		var errs []*graphql.ResponseError
+		request.ValidatedQuery, errs = schema.Validate(request.Query)
+		if len(errs) > 0 {
+			return graphql.Request{}, &httpError{
+				msg:   "parse graphql request: ",
+				code:  http.StatusBadRequest,
+				cause: errs[0],
+			}
+		}
+		if request.ValidatedQuery.TypeOf(request.OperationName) != graphql.QueryOperation {
 			return graphql.Request{}, &httpError{
 				msg:  "parse graphql request: GET requests must be queries",
 				code: http.StatusBadRequest,

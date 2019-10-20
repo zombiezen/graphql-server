@@ -24,10 +24,27 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"zombiezen.com/go/graphql-server/graphql"
 )
 
 func TestParse(t *testing.T) {
+	schema, err := graphql.ParseSchema(`
+		type Query {
+			me: User
+		}
+
+		type Mutation {
+			me: User
+		}
+
+		type User {
+			name: String!
+		}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name string
 
@@ -153,7 +170,7 @@ func TestParse(t *testing.T) {
 			if test.contentType != "" {
 				req.Header.Set("Content-Type", test.contentType)
 			}
-			got, err := Parse(req)
+			got, err := Parse(schema, req)
 			if err != nil {
 				if test.wantErrStatus == 0 {
 					t.Fatalf("Parse error = %v; want <nil>", err)
@@ -167,7 +184,8 @@ func TestParse(t *testing.T) {
 				t.Fatalf("Parse(...) = %+v, <nil>; want error status code = %d", got, test.wantErrStatus)
 			}
 			diff := cmp.Diff(test.want, got,
-				cmp.Transformer("graphql.Input.GoValue", graphql.Input.GoValue))
+				cmp.Transformer("graphql.Input.GoValue", graphql.Input.GoValue),
+				cmpopts.IgnoreFields(graphql.Request{}, "ValidatedQuery"))
 			if diff != "" {
 				t.Errorf("Parse(...) (-want +got):\n%s", diff)
 			}

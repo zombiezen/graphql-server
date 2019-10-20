@@ -288,3 +288,28 @@ func (schema *Schema) operationType(opType gqlang.OperationType) *gqlType {
 		panic("unknown operation type")
 	}
 }
+
+// Validate parses and type-checks an executable GraphQL document.
+func (schema *Schema) Validate(query string) (*ValidatedQuery, []*ResponseError) {
+	doc, errs := gqlang.Parse(query)
+	if len(errs) > 0 {
+		respErrs := make([]*ResponseError, 0, len(errs))
+		for _, err := range errs {
+			respErrs = append(respErrs, toResponseError(err))
+		}
+		return nil, respErrs
+	}
+	errs = schema.validateRequest(query, doc)
+	if len(errs) > 0 {
+		respErrs := make([]*ResponseError, 0, len(errs))
+		for _, err := range errs {
+			respErrs = append(respErrs, toResponseError(err))
+		}
+		return nil, respErrs
+	}
+	return &ValidatedQuery{
+		schema: schema,
+		source: query,
+		doc:    doc,
+	}, nil
+}

@@ -55,26 +55,37 @@ func NewServer(schema *Schema, query, mutation interface{}) (*Server, error) {
 	return srv, nil
 }
 
+// Schema returns the schema passed to NewServer.
+func (srv *Server) Schema() *Schema {
+	return srv.schema
+}
+
 // Execute runs a single GraphQL operation. It is safe to call Execute from
 // multiple goroutines.
 func (srv *Server) Execute(ctx context.Context, req Request) Response {
-	doc, errs := gqlang.Parse(req.Query)
-	if len(errs) > 0 {
-		resp := Response{}
-		for _, err := range errs {
-			resp.Errors = append(resp.Errors, toResponseError(err))
+	query := req.ValidatedQuery
+	if query == nil {
+		var errs []*ResponseError
+		query, errs = srv.schema.Validate(req.Query)
+		if len(errs) > 0 {
+			return Response{Errors: errs}
 		}
-		return resp
-	}
-	errs = srv.schema.validateRequest(req.Query, doc)
-	if len(errs) > 0 {
-		resp := Response{}
-		for _, err := range errs {
-			resp.Errors = append(resp.Errors, toResponseError(err))
+	} else if query.schema != srv.schema {
+		return Response{
+			Errors: []*ResponseError{
+				{Message: "query validated with a schema different from the server"},
+			},
 		}
-		return resp
 	}
-	op := findOperation(doc, req.OperationName)
+	return srv.executeValidated(ctx, Request{
+		ValidatedQuery: query,
+		OperationName:  req.OperationName,
+		Variables:      req.Variables,
+	})
+}
+
+func (srv *Server) executeValidated(ctx context.Context, req Request) Response {
+	op := req.ValidatedQuery.find(req.OperationName)
 	if op == nil {
 		if req.OperationName == "" {
 			return Response{
@@ -89,7 +100,7 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 			},
 		}
 	}
-	varValues, errs := coerceVariableValues(req.Query, srv.schema.types, req.Variables, op.VariableDefinitions)
+	varValues, errs := coerceVariableValues(req.ValidatedQuery.source, srv.schema.types, req.Variables, op.VariableDefinitions)
 	if len(errs) > 0 {
 		resp := Response{}
 		for _, err := range errs {
@@ -101,13 +112,13 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 	switch op.Type {
 	case gqlang.Query:
 		var sel *SelectionSet
-		sel, errs = newSelectionSet(req.Query, varValues, srv.schema.query.obj, op.SelectionSet)
+		sel, errs = newSelectionSet(req.ValidatedQuery.source, varValues, srv.schema.query.obj, op.SelectionSet)
 		if len(errs) == 0 {
 			data, errs = srv.schema.valueFromGo(ctx, varValues, srv.query, srv.schema.query, sel)
 		}
 	case gqlang.Mutation:
 		if !srv.mutation.IsValid() {
-			pos := op.Start.ToPosition(req.Query)
+			pos := op.Start.ToPosition(req.ValidatedQuery.source)
 			return Response{
 				Errors: []*ResponseError{{
 					Message: "unsupported operation type",
@@ -119,12 +130,12 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 			}
 		}
 		var sel *SelectionSet
-		sel, errs = newSelectionSet(req.Query, varValues, srv.schema.mutation.obj, op.SelectionSet)
+		sel, errs = newSelectionSet(req.ValidatedQuery.source, varValues, srv.schema.mutation.obj, op.SelectionSet)
 		if len(errs) == 0 {
 			data, errs = srv.schema.valueFromGo(ctx, varValues, srv.mutation, srv.schema.mutation, sel)
 		}
 	default:
-		pos := op.Start.ToPosition(req.Query)
+		pos := op.Start.ToPosition(req.ValidatedQuery.source)
 		return Response{
 			Errors: []*ResponseError{{
 				Message: "unsupported operation type",
@@ -144,10 +155,27 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 	return resp
 }
 
-// findOperation finds the operation with the name or nil if not found.
-// It assumes the document has been validated.
-func findOperation(doc *gqlang.Document, operationName string) *gqlang.Operation {
-	for _, defn := range doc.Definitions {
+// ValidatedQuery is a query that has been parsed and type-checked.
+type ValidatedQuery struct {
+	schema *Schema
+	source string
+	doc    *gqlang.Document
+}
+
+// TypeOf returns the type of the operation with the given name or zero if no
+// such operation exists. If the operation name is empty and there is only one
+// operation in the query, then TypeOf returns the type of that operation.
+func (query *ValidatedQuery) TypeOf(operationName string) OperationType {
+	op := query.find(operationName)
+	if op == nil {
+		return 0
+	}
+	return operationTypeFromAST(op.Type)
+}
+
+// find returns the operation with the name or nil if not found.
+func (query *ValidatedQuery) find(operationName string) *gqlang.Operation {
+	for _, defn := range query.doc.Definitions {
 		if defn.Operation == nil {
 			continue
 		}
@@ -158,26 +186,54 @@ func findOperation(doc *gqlang.Document, operationName string) *gqlang.Operation
 	return nil
 }
 
-// Request holds the inputs for a GraphQL operation.
-type Request struct {
-	Query         string           `json:"query"`
-	OperationName string           `json:"operationName,omitempty"`
-	Variables     map[string]Input `json:"variables,omitempty"`
+// OperationType represents the keywords used to declare operations.
+type OperationType int
+
+// Types of operations.
+const (
+	QueryOperation OperationType = 1 + iota
+	MutationOperation
+	SubscriptionOperation
+)
+
+func operationTypeFromAST(typ gqlang.OperationType) OperationType {
+	switch typ {
+	case gqlang.Query:
+		return QueryOperation
+	case gqlang.Mutation:
+		return MutationOperation
+	case gqlang.Subscription:
+		return SubscriptionOperation
+	default:
+		panic("unknown operation type")
+	}
 }
 
-// IsQuery reports whether r represents a query. This may return incorrect
-// results with invalid queries.
-func (r Request) IsQuery() bool {
-	// TODO(soon): Avoid double-parse on Execute.
-	doc, _ := gqlang.Parse(r.Query)
-	if doc == nil {
-		return false
+// String returns the keyword corresponding to the operation type.
+func (typ OperationType) String() string {
+	switch typ {
+	case QueryOperation:
+		return "query"
+	case MutationOperation:
+		return "mutation"
+	case SubscriptionOperation:
+		return "subscription"
+	default:
+		return fmt.Sprintf("OperationType(%d)", int(typ))
 	}
-	op := findOperation(doc, r.OperationName)
-	if op == nil {
-		return false
-	}
-	return op.Type == gqlang.Query
+}
+
+// Request holds the inputs for a GraphQL execution.
+type Request struct {
+	// Query is the GraphQL document text.
+	Query string `json:"query"`
+	// If ValidatedQuery is not nil, then it will be used instead of the Query field.
+	ValidatedQuery *ValidatedQuery `json:"-"`
+	// If OperationName is not empty, then the operation with the given name will
+	// be executed. Otherwise, the query must only include a single operation.
+	OperationName string `json:"operationName,omitempty"`
+	// Variables specifies the values of the operation's variables.
+	Variables map[string]Input `json:"variables,omitempty"`
 }
 
 // Response holds the output of a GraphQL operation.
