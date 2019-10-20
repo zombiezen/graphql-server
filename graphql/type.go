@@ -271,7 +271,7 @@ func (typ *gqlType) EnumValues() *[]enumValue {
 }
 
 // InputValues returns the list of input object fields.
-func (typ *gqlType) InputValues() *[]inputValueDefinition {
+func (typ *gqlType) InputFields() *[]inputValueDefinition {
 	if !typ.isInputObject() {
 		return nil
 	}
