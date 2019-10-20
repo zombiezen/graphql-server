@@ -345,7 +345,7 @@ func (typ *gqlType) isOutputType() bool {
 	for typ.isList() {
 		typ = typ.listElem
 	}
-	// TODO(soon): Interface or union.
+	// TODO(someday): Interface or union.
 	return typ.isScalar() || typ.isEnum() || typ.isObject()
 }
 
