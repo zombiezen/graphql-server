@@ -18,29 +18,67 @@ package graphql_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 
 	"zombiezen.com/go/graphql-server/graphql"
 )
 
-// Query is the GraphQL object read from the server.
-type Query struct {
-	// GenericGreeting is a no-arguments field that is read directly.
-	GenericGreeting string
+// GraphQL requests and response can be converted to JSON using the
+// standard encoding/json package.
+func Example_json() {
+	// Create a schema and a server.
+	server := newServer()
+
+	// Use json.Unmarshal to parse a GraphQL request from JSON.
+	var request graphql.Request
+	err := json.Unmarshal([]byte(`{
+		"query": "{ genericGreeting }"
+	}`), &request)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Use json.Marshal to serialize a GraphQL server response to JSON.
+	// We use json.MarshalIndent here for easier display.
+	response := server.Execute(context.Background(), request)
+	responseJSON, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(string(responseJSON))
+	// Output:
+	// {
+	//   "data": {
+	//     "genericGreeting": "Hiya!"
+	//   }
+	// }
 }
 
-// Greet is a field that takes arguments. The arguments are validated through
-// GraphQL's type system before the method is called.
-func (q *Query) Greet(args map[string]graphql.Value) string {
-	subject := args["subject"].Scalar()
-	return fmt.Sprintf("Hello, %s!", subject)
+func ExampleValidatedQuery() {
+	server := newServer()
+
+	// You can use your server's schema to validate a query.
+	query, errs := server.Schema().Validate(`{ genericGreeting }`)
+	if len(errs) > 0 {
+		log.Fatal(errs)
+	}
+
+	// You can pass the query to the server and it will execute it directly.
+	response := server.Execute(context.Background(), graphql.Request{
+		ValidatedQuery: query,
+	})
+	if len(response.Errors) > 0 {
+		log.Fatal(response.Errors)
+	}
+	fmt.Println(response.Data.ValueFor("genericGreeting").Scalar())
+	// Output:
+	// Hiya!
 }
 
-func Example() {
-	// Parse the GraphQL schema to establish type information. The schema
-	// is usually a string constant in your Go server or loaded from your
-	// server's filesystem.
+func newServer() *graphql.Server {
 	schema, err := graphql.ParseSchema(`
 		type Query {
 			genericGreeting: String!
@@ -48,39 +86,12 @@ func Example() {
 		}
 	`)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-
-	// A *graphql.Server binds a schema to a Go value. The structure of
-	// the Go type should reflect the GraphQL query type.
 	queryObject := &Query{GenericGreeting: "Hiya!"}
 	server, err := graphql.NewServer(schema, queryObject, nil)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-
-	// Once created, a *graphql.Server can execute requests.
-	response := server.Execute(context.Background(), graphql.Request{
-		Query: `
-			query($subject: String!) {
-				genericGreeting
-				greet(subject: $subject)
-			}
-		`,
-		Variables: map[string]graphql.Input{
-			"subject": graphql.ScalarInput("World"),
-		},
-	})
-
-	// GraphQL responses can be serialized however you want. Typically,
-	// you would use JSON, but this example displays the results directly.
-	if len(response.Errors) > 0 {
-		log.Fatal(response.Errors)
-	}
-	fmt.Println(response.Data.ValueFor("genericGreeting").Scalar())
-	fmt.Println(response.Data.ValueFor("greet").Scalar())
-
-	// Output:
-	// Hiya!
-	// Hello, World!
+	return server
 }
