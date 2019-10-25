@@ -794,6 +794,10 @@ func BenchmarkParse(b *testing.B) {
 		input string
 	}{
 		{
+			name:  "SmallOperation",
+			input: `{ name }`,
+		},
+		{
 			name: "Operation",
 			input: `
 query ProjectList {
