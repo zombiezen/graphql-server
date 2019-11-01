@@ -36,43 +36,50 @@ func newSelectionSet(source string, variables map[string]Value, typ *objectType,
 	var errs []error
 	for _, sel := range ast.Sel {
 		if sel.Field != nil {
-			name := sel.Field.Name.Value
-			fieldInfo := typ.field(name)
-			// Validation determines whether this is a valid reference to the
-			// reserved fields.
-			switch name {
-			case typeNameFieldName:
-				fieldInfo = typeNameField()
-			case schemaFieldName:
-				fieldInfo = schemaField()
-			case typeByNameFieldName:
-				fieldInfo = typeByNameField()
-			}
-			field := &SelectedField{
-				name: name,
-				key:  name,
-				loc:  astPositionToLocation(sel.Field.Start().ToPosition(source)),
-			}
-			if sel.Field.Alias != nil {
-				field.key = sel.Field.Alias.Value
-			}
-			set.fields = append(set.fields, field)
-
-			if fieldSelType := fieldInfo.typ.selectionSetType(); fieldSelType != nil {
-				var subErrs []error
-				field.sub, subErrs = newSelectionSet(source, variables, fieldSelType.obj, sel.Field.SelectionSet)
-				for _, err := range subErrs {
-					errs = append(errs, wrapFieldError(field.key, field.loc, err))
-				}
-			}
-			var argErrs []error
-			field.args, argErrs = coerceArgumentValues(source, variables, fieldInfo, sel.Field.Arguments)
-			for _, err := range argErrs {
-				errs = append(errs, wrapFieldError(field.key, field.loc, err))
-			}
+			errs = append(errs, set.addField(source, variables, typ, sel.Field)...)
 		}
 	}
 	return set, errs
+}
+
+func (sel *SelectionSet) addField(source string, variables map[string]Value, typ *objectType, f *gqlang.Field) []error {
+	name := f.Name.Value
+
+	fieldInfo := typ.field(name)
+	// Validation determines whether this is a valid reference to the
+	// reserved fields.
+	switch name {
+	case typeNameFieldName:
+		fieldInfo = typeNameField()
+	case schemaFieldName:
+		fieldInfo = schemaField()
+	case typeByNameFieldName:
+		fieldInfo = typeByNameField()
+	}
+	field := &SelectedField{
+		name: name,
+		key:  name,
+		loc:  astPositionToLocation(f.Start().ToPosition(source)),
+	}
+	if f.Alias != nil {
+		field.key = f.Alias.Value
+	}
+	sel.fields = append(sel.fields, field)
+
+	var errs []error
+	if fieldSelType := fieldInfo.typ.selectionSetType(); fieldSelType != nil {
+		var subErrs []error
+		field.sub, subErrs = newSelectionSet(source, variables, fieldSelType.obj, f.SelectionSet)
+		for _, err := range subErrs {
+			errs = append(errs, wrapFieldError(field.key, field.loc, err))
+		}
+	}
+	var argErrs []error
+	field.args, argErrs = coerceArgumentValues(source, variables, fieldInfo, f.Arguments)
+	for _, err := range argErrs {
+		errs = append(errs, wrapFieldError(field.key, field.loc, err))
+	}
+	return errs
 }
 
 // Has reports whether the selection set includes the field with the given name.
