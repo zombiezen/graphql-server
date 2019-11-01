@@ -116,11 +116,11 @@ type Field struct {
 
 // Key returns the field's response key. Typically, this is the field's name,
 // but if an alias is set then that will be used.
-func (f *Field) Key() string {
+func (f *Field) Key() *Name {
 	if f.Alias != nil {
-		return f.Alias.Value
+		return f.Alias
 	}
-	return f.Name.Value
+	return f.Name
 }
 
 // Start returns the byte offset of the beginning of the field.

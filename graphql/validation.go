@@ -252,7 +252,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 				Message:   fmt.Sprintf("field %q not found on type %v", selection.Field.Name.Value, typ),
 				Locations: []Location{loc},
 				Path: []PathSegment{
-					{Field: selection.Field.Key()},
+					{Field: selection.Field.Key().Value},
 				},
 			})
 			continue
@@ -266,7 +266,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 			}
 			argsLoc := astPositionToLocation(argsPos.ToPosition(source))
 			for _, err := range argsErrs {
-				errs = append(errs, wrapFieldError(selection.Field.Key(), argsLoc, err))
+				errs = append(errs, wrapFieldError(selection.Field.Key().Value, argsLoc, err))
 			}
 		}
 
@@ -279,14 +279,14 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 						astPositionToLocation(selection.Field.End().ToPosition(source)),
 					},
 					Path: []PathSegment{
-						{Field: selection.Field.Key()},
+						{Field: selection.Field.Key().Value},
 					},
 				})
 				continue
 			}
 			subErrs := validateSelectionSet(source, false, variables, subsetType, selection.Field.SelectionSet)
 			for _, err := range subErrs {
-				errs = append(errs, wrapFieldError(selection.Field.Key(), loc, err))
+				errs = append(errs, wrapFieldError(selection.Field.Key().Value, loc, err))
 			}
 		} else if selection.Field.SelectionSet != nil {
 			errs = append(errs, &ResponseError{
@@ -295,7 +295,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 					astPositionToLocation(selection.Field.SelectionSet.LBrace.ToPosition(source)),
 				},
 				Path: []PathSegment{
-					{Field: selection.Field.Key()},
+					{Field: selection.Field.Key().Value},
 				},
 			})
 		}
