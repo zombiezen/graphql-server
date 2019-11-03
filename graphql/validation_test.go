@@ -1172,7 +1172,9 @@ func TestValidateRequest(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
+		test := test
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			doc, errs := gqlang.Parse(test.request)
 			if len(errs) > 0 {
 				t.Fatal(errs)

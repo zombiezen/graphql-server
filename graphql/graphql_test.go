@@ -1021,7 +1021,9 @@ func TestExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, test := range tests {
+		test := test
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			srv, err := NewServer(schema, test.queryObject(t), nil)
 			if err != nil {
 				t.Fatal(err)
