@@ -261,6 +261,208 @@ func TestValidateRequest(t *testing.T) {
 			},
 		},
 		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-4e10c
+			name: "FieldSelection/Merging/IdenticalFields",
+			request: `
+				{
+					dog {
+						name
+						name
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-4e10c
+			name: "FieldSelection/Merging/IdenticalAliasesAndFields",
+			request: `
+				{
+					dog {
+						otherName: name
+						otherName: name
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-4e10c
+			name: "FieldSelection/Merging/ConflictingBecauseAlias",
+			request: `
+				{
+					dog {
+						name: nickname
+						name
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 49},
+						{5, 49},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "name"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-b6369
+			name: "FieldSelection/Merging/IdenticalFieldsWithIdenticalArgs",
+			request: `
+				{
+					dog {
+						doesKnowCommand(dogCommand: SIT)
+						doesKnowCommand(dogCommand: SIT)
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-b6369
+			name: "FieldSelection/Merging/IdenticalFieldsWithIdenticalValues",
+			request: `
+				query($dogCommand: DogCommand!) {
+					dog {
+						doesKnowCommand(dogCommand: $dogCommand)
+						doesKnowCommand(dogCommand: $dogCommand)
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-00fbf
+			name: "FieldSelection/Merging/ConflictingArgsOnValues",
+			request: `
+				{
+					dog {
+						doesKnowCommand(dogCommand: SIT)
+						doesKnowCommand(dogCommand: HEEL)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 49},
+						{5, 49},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-00fbf
+			name: "FieldSelection/Merging/ConflictingArgsValueAndVar",
+			request: `
+				query($dogCommand: DogCommand!) {
+					dog {
+						doesKnowCommand(dogCommand: SIT)
+						doesKnowCommand(dogCommand: $dogCommand)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 49},
+						{5, 49},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-00fbf
+			name: "FieldSelection/Merging/ConflictingArgsWithVars",
+			request: `
+				query($varOne: DogCommand!, $varTwo: DogCommand!) {
+					dog {
+						doesKnowCommand(dogCommand: $varOne)
+						doesKnowCommand(dogCommand: $varTwo)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 49},
+						{5, 49},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-00fbf
+			name: "FieldSelection/Merging/DifferingArgs",
+			request: `
+				{
+					dog {
+						doesKnowCommand(dogCommand: SIT)
+						doesKnowCommand
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 49},
+						{5, 49},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-77852
+			name: "FieldSelection/Merging/AcrossSets/DistinctFields",
+			request: `
+				{
+					dog {
+						name
+					}
+					dog {
+						nickname
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-77852
+			name: "FieldSelection/Merging/AcrossSets/ConflictingArgsOnValues",
+			request: `
+				{
+					dog {
+						doesKnowCommand(dogCommand: SIT)
+					}
+					dog {
+						doesKnowCommand(dogCommand: HEEL)
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 49},
+						{7, 49},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
 			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-e23c5
 			name: "FieldSelection/Leaf/ScalarValid",
 			request: `

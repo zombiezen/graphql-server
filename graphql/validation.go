@@ -300,7 +300,152 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 			})
 		}
 	}
+	var groups fieldGroups
+	groups.addSet(typ, set)
+	for _, group := range groups {
+		errs = append(errs, checkFieldMergability(source, group)...)
+	}
 	return errs
+}
+
+// checkFieldMergability ensures that the fields with the same key can be
+// merged, returning errors if they can't.
+// See https://graphql.github.io/graphql-spec/June2018/#FieldsInSetCanMerge()
+func checkFieldMergability(source string, fields []groupedField) []error {
+	key := fields[0].Key().Value
+	locs := make([]Location, 0, len(fields))
+	for _, f := range fields {
+		locs = append(locs, astPositionToLocation(f.Start().ToPosition(source)))
+	}
+
+	// TODO(someday): Is there a way to avoid quadratic behavior?
+	var errs []error
+	for i, fieldA := range fields {
+		for _, fieldB := range fields[i+1:] {
+			if !sameResponseShape(fieldA, fieldB) {
+				errs = append(errs, &fieldError{
+					key:  key,
+					locs: locs,
+					err:  xerrors.Errorf("incompatible fields for %s", key),
+				})
+				continue
+			}
+			if fieldA.parentType != fieldB.parentType && fieldA.parentType.isObject() && fieldB.parentType.isObject() {
+				continue
+			}
+			if fieldA.Name.Value != fieldB.Name.Value {
+				errs = append(errs, &fieldError{
+					key:  key,
+					locs: locs,
+					err:  xerrors.Errorf("different fields found for %s", key),
+				})
+				continue
+			}
+			if !fieldA.Arguments.IdenticalTo(fieldB.Arguments) {
+				errs = append(errs, &fieldError{
+					key:  key,
+					locs: locs,
+					err:  xerrors.Errorf("different arguments found for %s", key),
+				})
+				continue
+			}
+			var subgroups fieldGroups
+			subgroups.addSet(fieldA.typ(), fieldA.SelectionSet)
+			subgroups.addSet(fieldB.typ(), fieldB.SelectionSet)
+			for _, group := range subgroups {
+				for _, err := range checkFieldMergability(source, group) {
+					// checkFieldMergability will always attach locations.
+					errs = append(errs, &fieldError{
+						key: key,
+						err: err,
+					})
+				}
+			}
+		}
+	}
+	return errs
+}
+
+// sameResponseShape reports whether two fields have the same structure.
+// See https://graphql.github.io/graphql-spec/June2018/#SameResponseShape()
+func sameResponseShape(fieldA, fieldB groupedField) bool {
+	typeA, typeB := fieldA.typ(), fieldB.typ()
+	for {
+		if !typeA.isNullable() || !typeB.isNullable() {
+			if typeA.isNullable() || typeB.isNullable() {
+				return false
+			}
+			typeA = typeA.toNullable()
+			typeB = typeB.toNullable()
+		}
+		if !typeA.isList() && !typeB.isList() {
+			break
+		}
+		if !typeA.isList() || !typeB.isList() {
+			return false
+		}
+		typeA = typeA.listElem
+		typeB = typeB.listElem
+	}
+	if typeA.isScalar() || typeA.isEnum() || typeB.isScalar() || typeB.isEnum() {
+		return typeA == typeB
+	}
+	if typeA.selectionSetType() == nil || typeB.selectionSetType() == nil {
+		return false
+	}
+	var groups fieldGroups
+	groups.addSet(typeA, fieldA.SelectionSet)
+	groups.addSet(typeB, fieldB.SelectionSet)
+	for _, group := range groups {
+		subA := group[0]
+		for _, subB := range group[1:] {
+			if !sameResponseShape(subA, subB) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// fieldGroups groups fields by response key encountered during validation so
+// they can be checked for mergability. The zero value is an empty list of
+// fields.
+type fieldGroups [][]groupedField
+
+type groupedField struct {
+	*gqlang.Field
+	parentType *gqlType
+}
+
+func (groups *fieldGroups) addSet(typ *gqlType, set *gqlang.SelectionSet) {
+	if set == nil {
+		return
+	}
+	for _, sel := range set.Sel {
+		if info := typ.obj.field(sel.Field.Name.Value); info == nil {
+			// An undefined field will be picked up by other validation.
+			// Ignore it for this one, because dealing with nil types is annoying.
+			continue
+		}
+		groups.add(typ, sel.Field)
+	}
+}
+
+func (groups *fieldGroups) add(parentType *gqlType, field *gqlang.Field) {
+	k := field.Key().Value
+	gf := groupedField{field, parentType}
+	for i, group := range *groups {
+		groupKey := group[0].Key().Value
+		if k == groupKey {
+			(*groups)[i] = append(group, gf)
+			return
+		}
+	}
+	*groups = append(*groups, []groupedField{gf})
+}
+
+func (gf groupedField) typ() *gqlType {
+	return gf.parentType.obj.field(gf.Name.Value).typ
 }
 
 func validateArguments(source string, variables map[string]*validatedVariable, defns inputValueDefinitionList, args *gqlang.Arguments) []error {

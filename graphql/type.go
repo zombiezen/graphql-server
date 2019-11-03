@@ -353,6 +353,7 @@ func (typ *gqlType) selectionSetType() *gqlType {
 	for typ.isList() {
 		typ = typ.listElem
 	}
+	// TODO(someday): Interface or union.
 	if !typ.isObject() {
 		return nil
 	}
