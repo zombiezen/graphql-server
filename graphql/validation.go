@@ -310,7 +310,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 
 // checkFieldMergability ensures that the fields with the same key can be
 // merged, returning errors if they can't.
-// See https://graphql.github.io/graphql-spec/June2018/#FieldsInSetCanMerge()
+// See https://graphql.github.io/graphql-spec/June2018/#FieldsInSetCanMerge%28%29
 func checkFieldMergability(source string, fields []groupedField) []error {
 	key := fields[0].Key().Value
 	locs := make([]Location, 0, len(fields))
@@ -367,7 +367,7 @@ func checkFieldMergability(source string, fields []groupedField) []error {
 }
 
 // sameResponseShape reports whether two fields have the same structure.
-// See https://graphql.github.io/graphql-spec/June2018/#SameResponseShape()
+// See https://graphql.github.io/graphql-spec/June2018/#SameResponseShape%28%29
 func sameResponseShape(fieldA, fieldB groupedField) bool {
 	typeA, typeB := fieldA.typ(), fieldB.typ()
 	for {

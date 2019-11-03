@@ -121,7 +121,7 @@ func (in Input) GoValue() interface{} {
 }
 
 // coerceVariableValues converts inputs into values.
-// The procedure is specified in https://graphql.github.io/graphql-spec/June2018/#CoerceVariableValues()
+// The procedure is specified in https://graphql.github.io/graphql-spec/June2018/#CoerceVariableValues%28%29
 func coerceVariableValues(source string, typeMap map[string]*gqlType, vars map[string]Input, defns *gqlang.VariableDefinitions) (map[string]Value, []error) {
 	if defns == nil {
 		return nil, nil

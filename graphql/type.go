@@ -331,7 +331,7 @@ func (typ *gqlType) isInputObject() bool {
 }
 
 // isInputType reports whether typ can be used as an input.
-// See https://graphql.github.io/graphql-spec/June2018/#IsInputType()
+// See https://graphql.github.io/graphql-spec/June2018/#IsInputType%28%29
 func (typ *gqlType) isInputType() bool {
 	for typ.isList() {
 		typ = typ.listElem
@@ -340,7 +340,7 @@ func (typ *gqlType) isInputType() bool {
 }
 
 // isOutputType reports whether typ can be used as an output.
-// See https://graphql.github.io/graphql-spec/June2018/#IsOutputType()
+// See https://graphql.github.io/graphql-spec/June2018/#IsOutputType%28%29
 func (typ *gqlType) isOutputType() bool {
 	for typ.isList() {
 		typ = typ.listElem
@@ -361,7 +361,7 @@ func (typ *gqlType) selectionSetType() *gqlType {
 }
 
 // areTypesCompatible reports if a value variableType can be passed to a usage
-// expecting locationType. See https://graphql.github.io/graphql-spec/June2018/#AreTypesCompatible()
+// expecting locationType. See https://graphql.github.io/graphql-spec/June2018/#AreTypesCompatible%28%29
 func areTypesCompatible(locationType, variableType *gqlType) bool {
 	for {
 		switch {
