@@ -163,6 +163,48 @@ func (args *Arguments) ByName(name string) *Argument {
 	return nil
 }
 
+// IdenticalTo reports whether args is structurally identical to args2,
+// ignoring token positions and argument order. The result is undefined if
+// either set of arguments contain multiple values for the same argument name.
+func (args *Arguments) IdenticalTo(args2 *Arguments) bool {
+	if args == nil {
+		return args2 == nil
+	}
+	if args2 == nil {
+		return false
+	}
+	return inputValuesIdentical(args.argMap(), args2.argMap())
+}
+
+func (args *Arguments) argMap() map[string]*InputValue {
+	if args == nil {
+		return nil
+	}
+	m := make(map[string]*InputValue)
+	for _, arg := range args.Args {
+		m[arg.Name.Value] = arg.Value
+	}
+	return m
+}
+
+func inputValuesIdentical(m1, m2 map[string]*InputValue) bool {
+	if len(m1) != len(m2) {
+		return false
+	}
+	for k, v1 := range m1 {
+		if v2 := m2[k]; v2 == nil || !v1.IdenticalTo(v2) {
+			return false
+		}
+	}
+	for k := range m2 {
+		if m1[k] == nil {
+			// Argument present in args2 but not in args.
+			return false
+		}
+	}
+	return true
+}
+
 // Argument is a single element in Arguments.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Arguments
 type Argument struct {
@@ -221,6 +263,33 @@ func (ival *InputValue) String() string {
 	}
 }
 
+// IdenticalTo reports whether ival is structurally identical to ival2,
+// ignoring token positions and input object field order. The result is
+// undefined if either value contains an input object which contain multiple
+// values for the same field name.
+func (ival *InputValue) IdenticalTo(ival2 *InputValue) bool {
+	if ival == nil {
+		return ival2 == nil
+	}
+	if ival2 == nil {
+		return false
+	}
+	switch {
+	case ival.Null != nil && ival2.Null != nil:
+		return true
+	case ival.Scalar != nil && ival2.Scalar != nil:
+		return ival.Scalar.IdenticalTo(ival2.Scalar)
+	case ival.VariableRef != nil && ival2.VariableRef != nil:
+		return ival.VariableRef.Name.Value == ival2.VariableRef.Name.Value
+	case ival.List != nil && ival2.List != nil:
+		return ival.List.IdenticalTo(ival2.List)
+	case ival.InputObject != nil && ival2.InputObject != nil:
+		return ival.InputObject.IdenticalTo(ival2.InputObject)
+	default:
+		return false
+	}
+}
+
 // ScalarValue is a primitive literal like a string or integer.
 type ScalarValue struct {
 	Start Pos
@@ -243,6 +312,17 @@ func (sval *ScalarValue) Value() string {
 	default:
 		return sval.Raw
 	}
+}
+
+// IdenticalTo reports whether sval has the same type and value as sval2.
+func (sval *ScalarValue) IdenticalTo(sval2 *ScalarValue) bool {
+	if sval == nil {
+		return sval2 == nil
+	}
+	if sval2 == nil {
+		return false
+	}
+	return sval.Type == sval2.Type && sval.Value() == sval2.Value()
 }
 
 func parseString(raw string) string {
@@ -402,6 +482,28 @@ func (lval *ListValue) String() string {
 	return buf.String()
 }
 
+// IdenticalTo reports whether lval is structurally identical to lval2,
+// ignoring token positions and input object field order. The result is
+// undefined if either value contains an input object which contain multiple
+// values for the same field name.
+func (lval *ListValue) IdenticalTo(lval2 *ListValue) bool {
+	if lval == nil {
+		return lval2 == nil
+	}
+	if lval2 == nil {
+		return false
+	}
+	if len(lval.Values) != len(lval2.Values) {
+		return false
+	}
+	for i := range lval.Values {
+		if !lval.Values[i].IdenticalTo(lval2.Values[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // An InputObjectValue is an unordered list of keyed input values.
 type InputObjectValue struct {
 	LBrace Pos
@@ -423,6 +525,31 @@ func (ioval *InputObjectValue) String() string {
 	}
 	buf.WriteByte('}')
 	return buf.String()
+}
+
+// IdenticalTo reports whether ioval is structurally identical to ioval2,
+// ignoring token positions and input object field order. The result is
+// undefined if either value is or contains an input object which contain
+// multiple values for the same field name.
+func (ioval *InputObjectValue) IdenticalTo(ioval2 *InputObjectValue) bool {
+	if ioval == nil {
+		return ioval2 == nil
+	}
+	if ioval2 == nil {
+		return false
+	}
+	return inputValuesIdentical(ioval.fieldMap(), ioval2.fieldMap())
+}
+
+func (ioval *InputObjectValue) fieldMap() map[string]*InputValue {
+	if ioval == nil {
+		return nil
+	}
+	m := make(map[string]*InputValue)
+	for _, f := range ioval.Fields {
+		m[f.Name.Value] = f.Value
+	}
+	return m
 }
 
 // An InputObjectField is a keyed input value.
