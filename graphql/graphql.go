@@ -320,9 +320,7 @@ func toResponseError(e error) *ResponseError {
 			unknownChain = nil // leaf
 		case *fieldError:
 			re.Path = append(re.Path, PathSegment{Field: e.key})
-			if e.loc.Line > 0 {
-				re.Locations = append(re.Locations, e.loc)
-			}
+			re.Locations = append(re.Locations, e.locs...)
 			unknownChain = e.Unwrap()
 		case *listElementError:
 			re.Path = append(re.Path, PathSegment{ListIndex: e.idx})
@@ -349,9 +347,9 @@ func hasLocation(e error) bool {
 }
 
 type fieldError struct {
-	key string
-	loc Location // if Line == 0, no location
-	err error
+	key  string
+	locs []Location
+	err  error
 }
 
 func wrapFieldError(key string, loc Location, err error) error {
@@ -361,13 +359,14 @@ func wrapFieldError(key string, loc Location, err error) error {
 	if loc.Line < 1 || loc.Column < 1 {
 		panic("invalid location")
 	}
-	if hasLocation(err) {
-		loc = Location{}
+	var locs []Location
+	if !hasLocation(err) {
+		locs = []Location{loc}
 	}
 	return &fieldError{
-		key: key,
-		loc: loc,
-		err: err,
+		key:  key,
+		locs: locs,
+		err:  err,
 	}
 }
 
