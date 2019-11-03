@@ -32,19 +32,36 @@ func newSelectionSet(source string, variables map[string]Value, typ *objectType,
 	if ast == nil {
 		return nil, nil
 	}
-	set := new(SelectionSet)
+	sel := new(SelectionSet)
+	errs := sel.merge(source, variables, typ, ast)
+	return sel, errs
+}
+
+// merge merges the fields from the given AST, which is assumed to have been
+// validated. This combines the duties of CollectFields() and
+// MergeSelectionSets() from the spec.
+//
+// See https://graphql.github.io/graphql-spec/June2018/#sec-Field-Collection and
+// https://graphql.github.io/graphql-spec/June2018/#MergeSelectionSets%28%29
+func (sel *SelectionSet) merge(source string, variables map[string]Value, typ *objectType, ast *gqlang.SelectionSet) []error {
+	if ast == nil {
+		return nil
+	}
 	var errs []error
-	for _, sel := range ast.Sel {
-		if sel.Field != nil {
-			errs = append(errs, set.addField(source, variables, typ, sel.Field)...)
+	for _, s := range ast.Sel {
+		if s.Field != nil {
+			errs = append(errs, sel.addField(source, variables, typ, s.Field)...)
 		}
 	}
-	return set, errs
+	return errs
 }
 
 func (sel *SelectionSet) addField(source string, variables map[string]Value, typ *objectType, f *gqlang.Field) []error {
 	name := f.Name.Value
-
+	key := name
+	if f.Alias != nil {
+		key = f.Alias.Value
+	}
 	fieldInfo := typ.field(name)
 	// Validation determines whether this is a valid reference to the
 	// reserved fields.
@@ -56,30 +73,49 @@ func (sel *SelectionSet) addField(source string, variables map[string]Value, typ
 	case typeByNameFieldName:
 		fieldInfo = typeByNameField()
 	}
-	field := &SelectedField{
-		name: name,
-		key:  name,
-		loc:  astPositionToLocation(f.Start().ToPosition(source)),
-	}
-	if f.Alias != nil {
-		field.key = f.Alias.Value
-	}
-	sel.fields = append(sel.fields, field)
 
+	field := sel.find(key)
 	var errs []error
+	if field == nil {
+		// Validation rejects any fields that have the same key but differing
+		// invocations. Only evaluate the arguments from the first one, then merge
+		// the selection set of subsequent ones.
+		field = &SelectedField{
+			name: name,
+			key:  key,
+			loc:  astPositionToLocation(f.Start().ToPosition(source)),
+		}
+		sel.fields = append(sel.fields, field)
+
+		var argErrs []error
+		field.args, argErrs = coerceArgumentValues(source, variables, fieldInfo, f.Arguments)
+		for _, err := range argErrs {
+			errs = append(errs, wrapFieldError(field.key, field.loc, err))
+		}
+		if fieldInfo.typ.selectionSetType() != nil {
+			field.sub = new(SelectionSet)
+		}
+	}
+
 	if fieldSelType := fieldInfo.typ.selectionSetType(); fieldSelType != nil {
-		var subErrs []error
-		field.sub, subErrs = newSelectionSet(source, variables, fieldSelType.obj, f.SelectionSet)
+		subErrs := field.sub.merge(source, variables, fieldSelType.obj, f.SelectionSet)
 		for _, err := range subErrs {
 			errs = append(errs, wrapFieldError(field.key, field.loc, err))
 		}
 	}
-	var argErrs []error
-	field.args, argErrs = coerceArgumentValues(source, variables, fieldInfo, f.Arguments)
-	for _, err := range argErrs {
-		errs = append(errs, wrapFieldError(field.key, field.loc, err))
-	}
 	return errs
+}
+
+func (sel *SelectionSet) find(key string) *SelectedField {
+	if sel == nil {
+		return nil
+	}
+	for _, f := range sel.fields {
+		if f.key == key {
+			return f
+		}
+	}
+	return nil
 }
 
 // Has reports whether the selection set includes the field with the given name.
@@ -116,10 +152,12 @@ type SelectedField struct {
 	key string
 	// name is the object field name.
 	name string
-
-	loc  Location
+	// loc is the first location that the field encounters.
+	loc Location
+	// args holds the argument values that the field will be invoked with.
 	args map[string]Value
-	sub  *SelectionSet
+	// sub is set for fields that have a composite type.
+	sub *SelectionSet
 }
 
 // Arg returns the argument with the given name or a null Value if the argument

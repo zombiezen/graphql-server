@@ -42,6 +42,7 @@ func TestExecute(t *testing.T) {
 			myStringId: ID
 			myList: [Int!]!
 			myObjectList: [Dog!]!
+			myDog: Dog
 			myDirection: Direction
 
 			niladicNoArgsMethod: String
@@ -68,6 +69,7 @@ func TestExecute(t *testing.T) {
 
 		type Dog {
 			name: String!
+			barkVolume: Int
 		}
 
 		enum Direction {
@@ -463,6 +465,27 @@ func TestExecute(t *testing.T) {
 			want: []fieldExpectations{
 				{key: "myInt", value: valueExpectations{scalar: "42"}},
 				{key: "myString", value: valueExpectations{scalar: "hello"}},
+			},
+		},
+		{
+			name: "Object/MergeFields",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{
+					MyDog: &testDogStruct{
+						Name:       "Fido",
+						BarkVolume: NullInt{Int: 11, Valid: true},
+					},
+				}
+			},
+			request: Request{Query: `{
+				myDog { name }
+				myDog { barkVolume }
+			}`},
+			want: []fieldExpectations{
+				{key: "myDog", value: valueExpectations{object: []fieldExpectations{
+					{key: "name", value: valueExpectations{scalar: "Fido"}},
+					{key: "barkVolume", value: valueExpectations{scalar: "11"}},
+				}}},
 			},
 		},
 		{
@@ -1029,6 +1052,7 @@ type testQueryStruct struct {
 	MyStringID   NullString
 	MyList       []int32
 	MyObjectList []*testDogStruct
+	MyDog        *testDogStruct
 	MyDirection  NullString
 
 	e errorfer
@@ -1164,7 +1188,8 @@ func (q *testQueryStruct) InputObjectArgument(args map[string]Value) string {
 }
 
 type testDogStruct struct {
-	Name string
+	Name       string
+	BarkVolume NullInt
 }
 
 func newString(s string) *string { return &s }
