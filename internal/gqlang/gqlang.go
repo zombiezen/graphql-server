@@ -34,6 +34,7 @@ type Document struct {
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Document
 type Definition struct {
 	Operation *Operation
+	Fragment  *FragmentDefinition
 	Type      *TypeDefinition
 }
 
@@ -42,6 +43,8 @@ func (defn *Definition) Start() Pos {
 	switch {
 	case defn.Operation != nil:
 		return defn.Operation.Start
+	case defn.Fragment != nil:
+		return defn.Fragment.Keyword
 	case defn.Type != nil:
 		return defn.Type.Start()
 	default:
@@ -682,6 +685,37 @@ func (nn *NonNullType) String() string {
 	default:
 		panic("unknown non-null type")
 	}
+}
+
+// A FragmentDefinition is a selection of fields.
+// https://graphql.github.io/graphql-spec/June2018/#FragmentDefinition
+type FragmentDefinition struct {
+	Keyword      Pos
+	Name         *Name
+	Type         *TypeCondition
+	SelectionSet *SelectionSet
+}
+
+func (defn *FragmentDefinition) asDefinition() *Definition {
+	if defn == nil {
+		return nil
+	}
+	return &Definition{Fragment: defn}
+}
+
+// TypeCondition specifies the type a fragment applies to.
+// https://graphql.github.io/graphql-spec/June2018/#TypeCondition
+type TypeCondition struct {
+	On   Pos
+	Name *Name
+}
+
+// String returns the condition in the form "on TypeName".
+func (cond *TypeCondition) String() string {
+	if cond == nil {
+		return ""
+	}
+	return "on " + cond.Name.String()
 }
 
 // A Description is a string that documents a type system definition.

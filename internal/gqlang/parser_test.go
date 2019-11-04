@@ -746,6 +746,49 @@ input ItemInput {
 				6: {},
 			},
 		},
+		{
+			name: "Fragment",
+			input: `fragment friendFields on User {
+				id
+				name
+			}`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Fragment: &FragmentDefinition{
+						Keyword: 0,
+						Name: &Name{
+							Start: 9,
+							Value: "friendFields",
+						},
+						Type: &TypeCondition{
+							On: 22,
+							Name: &Name{
+								Start: 25,
+								Value: "User",
+							},
+						},
+						SelectionSet: &SelectionSet{
+							LBrace: 30,
+							Sel: []*Selection{
+								{Field: &Field{
+									Name: &Name{
+										Start: 36,
+										Value: "id",
+									},
+								}},
+								{Field: &Field{
+									Name: &Name{
+										Start: 43,
+										Value: "name",
+									},
+								}},
+							},
+							RBrace: 51,
+						},
+					}},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

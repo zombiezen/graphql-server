@@ -75,6 +75,11 @@ func (p *parser) definition() (*Definition, []error) {
 		op, errs := p.operation()
 		return op.asDefinition(), errs
 	}
+	if p.tokens[0].kind == name && p.tokens[0].source == "fragment" {
+		// Fragments do not permit a description before them.
+		frag, errs := p.fragmentDefinition()
+		return frag.asDefinition(), errs
+	}
 	var keywordTok token
 	switch p.tokens[0].kind {
 	case name:
@@ -634,6 +639,61 @@ func (p *parser) typeRef() (*TypeRef, []error) {
 			err: xerrors.Errorf("type: expected name or '[', found %q", tok),
 		}}
 	}
+}
+
+func (p *parser) fragmentDefinition() (*FragmentDefinition, []error) {
+	defn := new(FragmentDefinition)
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("fragment definition: expected 'fragment', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != name || p.tokens[0].source != "fragment" {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("fragment definition: expected 'fragment', found %q", p.tokens[0]),
+		}}
+	}
+	defn.Keyword = p.next().start
+	var err error
+	defn.Name, err = p.name()
+	if err != nil {
+		return nil, []error{xerrors.Errorf("fragment definition: %w", err)}
+	}
+	if defn.Name.Value == "on" {
+		return nil, []error{xerrors.New("fragment definition: expected name, found 'on'")}
+	}
+	defn.Type, err = p.typeCondition()
+	if err != nil {
+		return nil, []error{xerrors.Errorf("fragment definition %s: %w", defn.Name.Value, err)}
+	}
+	var errs []error
+	defn.SelectionSet, errs = p.selectionSet()
+	for i, err := range errs {
+		errs[i] = xerrors.Errorf("fragment definition %s: %w", defn.Name.Value, err)
+	}
+	return defn, errs
+}
+
+func (p *parser) typeCondition() (*TypeCondition, error) {
+	cond := new(TypeCondition)
+	if len(p.tokens) == 0 {
+		return nil, &posError{
+			pos: p.eofPos,
+			err: xerrors.New("type condition: expected 'on', got EOF"),
+		}
+	}
+	if p.tokens[0].kind != name || p.tokens[0].source != "on" {
+		return nil, &posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("type condition: expected 'on', found %q", p.tokens[0]),
+		}
+	}
+	cond.On = p.next().start
+	var err error
+	cond.Name, err = p.name()
+	return cond, err
 }
 
 func (p *parser) optionalDescription() *Description {
