@@ -17,6 +17,8 @@
 package graphql
 
 import (
+	"io/ioutil"
+	"os"
 	"testing"
 )
 
@@ -274,5 +276,29 @@ func TestParseSchema(t *testing.T) {
 				t.Error("ParseSchema did not return error")
 			}
 		})
+	}
+}
+
+func TestParseSchemaFile(t *testing.T) {
+	f, err := ioutil.TempFile("", "graphql-test*.gql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		name := f.Name()
+		f.Close()
+		if err := os.Remove(name); err != nil {
+			t.Error(err)
+		}
+	}()
+	if _, err := f.WriteString("type Query { foo: String }"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Sync(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ParseSchemaFile(f.Name(), nil); err != nil {
+		t.Errorf("ParseSchemaFile(%q, nil): %v", f.Name(), err)
 	}
 }

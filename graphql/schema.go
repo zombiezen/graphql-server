@@ -18,6 +18,8 @@ package graphql
 
 import (
 	"context"
+	"io"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -59,14 +61,18 @@ func (opts schemaOptions) description(d *gqlang.Description) string {
 // ParseSchema parses a GraphQL document containing type definitions.
 // It is assumed that the schema is trusted.
 func ParseSchema(source string, opts *SchemaOptions) (*Schema, error) {
-	return parseSchema(source, schemaOptions{SchemaOptions: opts})
+	schema, err := parseSchema(source, schemaOptions{SchemaOptions: opts})
+	if err != nil {
+		return nil, xerrors.Errorf("parse schema: %w", err)
+	}
+	return schema, nil
 }
 
 func parseSchema(source string, opts schemaOptions) (*Schema, error) {
 	doc, errs := gqlang.Parse(source)
 	if len(errs) > 0 {
 		msgBuilder := new(strings.Builder)
-		msgBuilder.WriteString("parse schema:")
+		msgBuilder.WriteString("syntax errors:")
 		for _, err := range errs {
 			msgBuilder.WriteByte('\n')
 			if p, ok := gqlang.ErrorPosition(err); ok {
@@ -80,7 +86,7 @@ func parseSchema(source string, opts schemaOptions) (*Schema, error) {
 	var typeOrder []string
 	for _, defn := range doc.Definitions {
 		if defn.Operation != nil {
-			return nil, xerrors.Errorf("parse schema: %v: operations not allowed", defn.Operation.Start.ToPosition(source))
+			return nil, xerrors.Errorf("%v: operations not allowed", defn.Operation.Start.ToPosition(source))
 		}
 		if defn.Type != nil {
 			typeOrder = append(typeOrder, defn.Type.Name().String())
@@ -88,7 +94,7 @@ func parseSchema(source string, opts schemaOptions) (*Schema, error) {
 	}
 	typeMap, err := buildTypeMap(source, opts, doc)
 	if err != nil {
-		return nil, xerrors.Errorf("parse schema: %v", err)
+		return nil, err
 	}
 	schema := &Schema{
 		query:     typeMap["Query"],
@@ -99,14 +105,35 @@ func parseSchema(source string, opts schemaOptions) (*Schema, error) {
 	}
 	if !opts.internal {
 		if schema.query == nil {
-			return nil, xerrors.New("parse schema: could not find Query type")
+			return nil, xerrors.New("could not find Query type")
 		}
 		if !schema.query.isObject() {
-			return nil, xerrors.Errorf("parse schema: query type %v must be an object", schema.query)
+			return nil, xerrors.Errorf("query type %v must be an object", schema.query)
 		}
 		if schema.mutation != nil && !schema.mutation.isObject() {
-			return nil, xerrors.Errorf("parse schema: mutation type %v must be an object", schema.mutation)
+			return nil, xerrors.Errorf("mutation type %v must be an object", schema.mutation)
 		}
+	}
+	return schema, nil
+}
+
+// ParseSchemaFile parses the GraphQL file containing type definitions named
+// by path. It is assumed that the schema is trusted.
+func ParseSchemaFile(path string, opts *SchemaOptions) (*Schema, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		// The error will contain the path.
+		return nil, xerrors.Errorf("parse schema file: %w", err)
+	}
+	source := new(strings.Builder)
+	_, err = io.Copy(source, f)
+	f.Close()
+	if err != nil {
+		return nil, xerrors.Errorf("parse schema file %s: %w", path, err)
+	}
+	schema, err := parseSchema(source.String(), schemaOptions{SchemaOptions: opts})
+	if err != nil {
+		return nil, xerrors.Errorf("parse schema file %s: %w", path, err)
 	}
 	return schema, nil
 }
