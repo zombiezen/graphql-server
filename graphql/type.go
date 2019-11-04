@@ -420,7 +420,8 @@ func (f objectTypeField) DeprecationReason() NullString {
 }
 
 type inputValueDefinition struct {
-	name string
+	name        string
+	description string
 
 	// defaultValue.typ will always be set. Most of the time, defaultValue
 	// is valid value of the type. However, if the type is non-nullable and
@@ -432,8 +433,23 @@ type inputValueDefinition struct {
 	defaultValue Value
 }
 
+func (ivd inputValueDefinition) Name() string {
+	return ivd.name
+}
+
+func (ivd inputValueDefinition) Description() NullString {
+	return NullString{S: ivd.description, Valid: ivd.description != ""}
+}
+
 func (ivd inputValueDefinition) Type() *gqlType {
 	return ivd.defaultValue.typ
+}
+
+func (ivd inputValueDefinition) DefaultValue() NullString {
+	// TODO(someday): Return the default value in GraphQL syntax.
+	// The spec says this "may return" the default value.
+	// https://graphql.github.io/graphql-spec/June2018/#sec-The-__InputValue-Type
+	return NullString{}
 }
 
 type inputValueDefinitionList []inputValueDefinition

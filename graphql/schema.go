@@ -210,6 +210,7 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 				}
 				argDef := inputValueDefinition{
 					name:         argName,
+					description:  arg.Description.Value(),
 					defaultValue: Value{typ: typ},
 				}
 				if arg.Default != nil {
@@ -244,7 +245,8 @@ func fillInputObjectTypeFields(source string, internal bool, typeMap map[string]
 			return xerrors.Errorf("%v: %v is not an input type", fieldDefn.Type.Start().ToPosition(source), fieldDefn.Type)
 		}
 		f := inputValueDefinition{
-			name: fieldName,
+			name:        fieldName,
+			description: fieldDefn.Description.Value(),
 		}
 		if fieldDefn.Default != nil {
 			f.defaultValue = coerceConstantInputValue(typ, fieldDefn.Default.Value)
