@@ -35,7 +35,7 @@ func Example() {
 		type Query {
 			greeting: String!
 		}
-	`)
+	`, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

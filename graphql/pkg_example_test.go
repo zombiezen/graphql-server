@@ -46,7 +46,7 @@ func Example() {
 			genericGreeting: String!
 			greet(subject: String!): String!
 		}
-	`)
+	`, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

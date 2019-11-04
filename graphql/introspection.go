@@ -208,7 +208,7 @@ enum __DirectiveLocation {
   INPUT_OBJECT
   INPUT_FIELD_DEFINITION
 }
-		`, true)
+		`, schemaOptions{internal: true})
 	})
 	if introspect.err != nil {
 		panic(introspect.err)

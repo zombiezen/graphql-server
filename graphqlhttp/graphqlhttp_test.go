@@ -41,7 +41,7 @@ func TestParse(t *testing.T) {
 		type User {
 			name: String!
 		}
-	`)
+	`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

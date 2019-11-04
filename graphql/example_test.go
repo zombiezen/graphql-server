@@ -84,7 +84,7 @@ func newServer() *graphql.Server {
 			genericGreeting: String!
 			greet(subject: String!): String!
 		}
-	`)
+	`, nil)
 	if err != nil {
 		panic(err)
 	}

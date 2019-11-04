@@ -1016,7 +1016,7 @@ func TestExecute(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	schema, err := ParseSchema(schemaSource)
+	schema, err := ParseSchema(schemaSource, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1445,7 +1445,7 @@ func testObjectValue() Value {
 			myString: String
 			myInt: Int
 		}
-	`)
+	`, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -1469,7 +1469,7 @@ func testIDObjectValue() Value {
 			myStringId: ID
 			myInt64Id: ID
 		}
-	`)
+	`, nil)
 	if err != nil {
 		panic(err)
 	}

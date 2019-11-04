@@ -264,7 +264,7 @@ func TestParseSchema(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := ParseSchema(test.source)
+			_, err := ParseSchema(test.source, nil)
 			if err != nil {
 				t.Logf("Error: %v", err)
 				if !test.wantErr {

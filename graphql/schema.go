@@ -37,13 +37,32 @@ type Schema struct {
 	goTypes map[typeKey]*typeDescriptor
 }
 
-// ParseSchema parses a GraphQL document containing type definitions.
-// It is assumed that the schema is trusted.
-func ParseSchema(source string) (*Schema, error) {
-	return parseSchema(source, false)
+// SchemaOptions specifies how the schema source will be interpreted. nil is
+// treated the same as the zero value.
+type SchemaOptions struct {
+	// IgnoreDescriptions will strip descriptions from the schema as it is parsed.
+	IgnoreDescriptions bool
 }
 
-func parseSchema(source string, internal bool) (*Schema, error) {
+type schemaOptions struct {
+	*SchemaOptions
+	internal bool
+}
+
+func (opts schemaOptions) description(d *gqlang.Description) string {
+	if opts.SchemaOptions != nil && opts.IgnoreDescriptions {
+		return ""
+	}
+	return d.Value()
+}
+
+// ParseSchema parses a GraphQL document containing type definitions.
+// It is assumed that the schema is trusted.
+func ParseSchema(source string, opts *SchemaOptions) (*Schema, error) {
+	return parseSchema(source, schemaOptions{SchemaOptions: opts})
+}
+
+func parseSchema(source string, opts schemaOptions) (*Schema, error) {
 	doc, errs := gqlang.Parse(source)
 	if len(errs) > 0 {
 		msgBuilder := new(strings.Builder)
@@ -67,7 +86,7 @@ func parseSchema(source string, internal bool) (*Schema, error) {
 			typeOrder = append(typeOrder, defn.Type.Name().String())
 		}
 	}
-	typeMap, err := buildTypeMap(source, internal, doc)
+	typeMap, err := buildTypeMap(source, opts, doc)
 	if err != nil {
 		return nil, xerrors.Errorf("parse schema: %v", err)
 	}
@@ -78,7 +97,7 @@ func parseSchema(source string, internal bool) (*Schema, error) {
 		typeOrder: typeOrder,
 		goTypes:   make(map[typeKey]*typeDescriptor),
 	}
-	if !internal {
+	if !opts.internal {
 		if schema.query == nil {
 			return nil, xerrors.New("parse schema: could not find Query type")
 		}
@@ -94,7 +113,7 @@ func parseSchema(source string, internal bool) (*Schema, error) {
 
 const reservedPrefix = "__"
 
-func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[string]*gqlType, error) {
+func buildTypeMap(source string, opts schemaOptions, doc *gqlang.Document) (map[string]*gqlType, error) {
 	typeMap := make(map[string]*gqlType)
 	builtins := []*gqlType{
 		booleanType,
@@ -113,7 +132,7 @@ func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[strin
 			continue
 		}
 		name := t.Name()
-		if !internal && strings.HasPrefix(name.Value, reservedPrefix) {
+		if !opts.internal && strings.HasPrefix(name.Value, reservedPrefix) {
 			return nil, xerrors.Errorf("%v: use of reserved name %q", name.Start.ToPosition(source), name.Value)
 		}
 		if typeMap[name.Value] != nil {
@@ -122,14 +141,14 @@ func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[strin
 
 		switch {
 		case t.Scalar != nil:
-			typeMap[name.Value] = newScalarType(name.Value, t.Scalar.Description.Value())
+			typeMap[name.Value] = newScalarType(name.Value, opts.description(t.Scalar.Description))
 		case t.Enum != nil:
 			info := &enumType{
 				name: name.Value,
 			}
 			for _, v := range defn.Type.Enum.Values.Values {
 				sym := v.Value.Value
-				if !internal && strings.HasPrefix(sym, reservedPrefix) {
+				if !opts.internal && strings.HasPrefix(sym, reservedPrefix) {
 					return nil, xerrors.Errorf("%v: use of reserved name %q", v.Value.Start.ToPosition(source), sym)
 				}
 				if info.has(sym) {
@@ -137,18 +156,18 @@ func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[strin
 				}
 				info.values = append(info.values, enumValue{
 					name:        sym,
-					description: v.Description.Value(),
+					description: opts.description(v.Description),
 				})
 			}
-			typeMap[name.Value] = newEnumType(info, t.Enum.Description.Value())
+			typeMap[name.Value] = newEnumType(info, opts.description(t.Enum.Description))
 		case t.Object != nil:
 			typeMap[name.Value] = newObjectType(&objectType{
 				name: name.Value,
-			}, t.Object.Description.Value())
+			}, opts.description(t.Object.Description))
 		case t.InputObject != nil:
 			typeMap[name.Value] = newInputObjectType(&inputObjectType{
 				name: name.Value,
-			}, t.InputObject.Description.Value())
+			}, opts.description(t.InputObject.Description))
 		}
 	}
 	// Second pass: fill in object definitions.
@@ -158,11 +177,11 @@ func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[strin
 		}
 		switch {
 		case defn.Type.Object != nil:
-			if err := fillObjectTypeFields(source, internal, typeMap, defn.Type.Object); err != nil {
+			if err := fillObjectTypeFields(source, opts, typeMap, defn.Type.Object); err != nil {
 				return nil, err
 			}
 		case defn.Type.InputObject != nil:
-			if err := fillInputObjectTypeFields(source, internal, typeMap, defn.Type.InputObject); err != nil {
+			if err := fillInputObjectTypeFields(source, opts, typeMap, defn.Type.InputObject); err != nil {
 				return nil, err
 			}
 		}
@@ -170,11 +189,11 @@ func buildTypeMap(source string, internal bool, doc *gqlang.Document) (map[strin
 	return typeMap, nil
 }
 
-func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlType, obj *gqlang.ObjectTypeDefinition) error {
+func fillObjectTypeFields(source string, opts schemaOptions, typeMap map[string]*gqlType, obj *gqlang.ObjectTypeDefinition) error {
 	info := typeMap[obj.Name.Value].obj
 	for _, fieldDefn := range obj.Fields.Defs {
 		fieldName := fieldDefn.Name.Value
-		if !internal && strings.HasPrefix(fieldName, reservedPrefix) {
+		if !opts.internal && strings.HasPrefix(fieldName, reservedPrefix) {
 			return xerrors.Errorf("%v: use of reserved name %q", fieldDefn.Name.Start.ToPosition(source), fieldName)
 		}
 		if info.field(fieldName) != nil {
@@ -189,13 +208,13 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 		}
 		f := objectTypeField{
 			name:        fieldName,
-			description: fieldDefn.Description.Value(),
+			description: opts.description(fieldDefn.Description),
 			typ:         typ,
 		}
 		if fieldDefn.Args != nil {
 			for _, arg := range fieldDefn.Args.Args {
 				argName := arg.Name.Value
-				if !internal && strings.HasPrefix(argName, reservedPrefix) {
+				if !opts.internal && strings.HasPrefix(argName, reservedPrefix) {
 					return xerrors.Errorf("%v: use of reserved name %q", arg.Name.Start.ToPosition(source), argName)
 				}
 				if f.args.byName(argName) != nil {
@@ -210,7 +229,7 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 				}
 				argDef := inputValueDefinition{
 					name:         argName,
-					description:  arg.Description.Value(),
+					description:  opts.description(arg.Description),
 					defaultValue: Value{typ: typ},
 				}
 				if arg.Default != nil {
@@ -227,11 +246,11 @@ func fillObjectTypeFields(source string, internal bool, typeMap map[string]*gqlT
 	return nil
 }
 
-func fillInputObjectTypeFields(source string, internal bool, typeMap map[string]*gqlType, obj *gqlang.InputObjectTypeDefinition) error {
+func fillInputObjectTypeFields(source string, opts schemaOptions, typeMap map[string]*gqlType, obj *gqlang.InputObjectTypeDefinition) error {
 	info := typeMap[obj.Name.Value].input
 	for _, fieldDefn := range obj.Fields.Defs {
 		fieldName := fieldDefn.Name.Value
-		if !internal && strings.HasPrefix(fieldName, reservedPrefix) {
+		if !opts.internal && strings.HasPrefix(fieldName, reservedPrefix) {
 			return xerrors.Errorf("%v: use of reserved name %q", fieldDefn.Name.Start.ToPosition(source), fieldName)
 		}
 		if info.fields.byName(fieldName) != nil {
@@ -245,13 +264,12 @@ func fillInputObjectTypeFields(source string, internal bool, typeMap map[string]
 			return xerrors.Errorf("%v: %v is not an input type", fieldDefn.Type.Start().ToPosition(source), fieldDefn.Type)
 		}
 		f := inputValueDefinition{
-			name:        fieldName,
-			description: fieldDefn.Description.Value(),
+			name:         fieldName,
+			description:  opts.description(fieldDefn.Description),
+			defaultValue: Value{typ: typ},
 		}
 		if fieldDefn.Default != nil {
 			f.defaultValue = coerceConstantInputValue(typ, fieldDefn.Default.Value)
-		} else {
-			f.defaultValue.typ = typ
 		}
 		info.fields = append(info.fields, f)
 	}

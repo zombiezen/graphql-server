@@ -72,7 +72,7 @@ func TestValidateRequest(t *testing.T) {
 		}
 
 		input ComplexInput { name: String!, owner: String }`
-	schema, err := ParseSchema(schemaSource)
+	schema, err := ParseSchema(schemaSource, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

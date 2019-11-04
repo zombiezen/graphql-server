@@ -27,7 +27,7 @@ func BenchmarkExecute(b *testing.B) {
 		type Query {
 			myString: String
 		}
-	`)
+	`, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func BenchmarkValidate(b *testing.B) {
 		type Query {
 			myString: String
 		}
-	`)
+	`, nil)
 	if err != nil {
 		b.Fatal(err)
 	}

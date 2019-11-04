@@ -25,6 +25,7 @@ func TestIntrospection(t *testing.T) {
 	tests := []struct {
 		name        string
 		schema      string
+		options     *SchemaOptions
 		hasMutation bool
 		request     Request
 		want        []fieldExpectations
@@ -140,6 +141,30 @@ func TestIntrospection(t *testing.T) {
 			},
 		},
 		{
+			name: "Type/IgnoreDescriptions",
+			schema: `
+				"""Hello, World!"""
+				type Query {
+					foo: String!
+				}
+			`,
+			options: &SchemaOptions{
+				IgnoreDescriptions: true,
+			},
+			request: Request{
+				Query: `{
+					__type(name: "Query") {
+						description
+					}
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "__type", value: valueExpectations{object: []fieldExpectations{
+					{key: "description", value: valueExpectations{null: true}},
+				}}},
+			},
+		},
+		{
 			name: "Schema/QueryAndMutation",
 			schema: `
 				type Query {
@@ -223,7 +248,7 @@ func TestIntrospection(t *testing.T) {
 	ctx := context.Background()
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			schema, err := ParseSchema(test.schema)
+			schema, err := ParseSchema(test.schema, test.options)
 			if err != nil {
 				t.Fatal(err)
 			}
