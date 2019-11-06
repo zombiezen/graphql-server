@@ -21,10 +21,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
 
-func TestValidateRequest(t *testing.T) {
+func TestValidate(t *testing.T) {
 	// Schema from https://graphql.github.io/graphql-spec/June2018/#example-26a9d,
 	// https://graphql.github.io/graphql-spec/June2018/#example-1891c, and
 	// https://graphql.github.io/graphql-spec/June2018/#example-f3185.
@@ -1175,15 +1174,9 @@ func TestValidateRequest(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			doc, errs := gqlang.Parse(test.request)
-			if len(errs) > 0 {
-				t.Fatal(errs)
-			}
-			errs = schema.validateRequest(test.request, doc)
-			got := make([]*ResponseError, len(errs))
-			for i := range got {
-				got[i] = toResponseError(errs[i])
-				t.Logf("Error: %s", got[i].Message)
+			_, got := schema.Validate(test.request)
+			for _, err := range got {
+				t.Logf("Error: %s", err.Message)
 			}
 			if diff := compareErrors(test.wantErrors, got); diff != "" {
 				t.Errorf("errors (-want +got):\n%s", diff)
