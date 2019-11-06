@@ -27,6 +27,21 @@ import (
 // validateRequest validates a parsed GraphQL request according to the procedure
 // defined in https://graphql.github.io/graphql-spec/June2018/#sec-Validation.
 func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []error {
+	errs := schema.validateStructure(source, doc)
+	if len(errs) > 0 {
+		return errs
+	}
+	for _, defn := range doc.Definitions {
+		if defn.Operation == nil {
+			continue
+		}
+		errs = append(errs, schema.validateOperation(source, defn.Operation)...)
+	}
+	return errs
+}
+
+// validateStructure validates the well-formedness of the top-level definitions.
+func (schema *Schema) validateStructure(source string, doc *gqlang.Document) []error {
 	var errs []error
 	var anonPosList []gqlang.Pos
 	operationsByName := make(map[string][]gqlang.Pos)
@@ -79,54 +94,57 @@ func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []err
 			})
 		}
 	}
-	if len(errs) > 0 {
-		return errs
-	}
+	return errs
+}
 
-	for _, defn := range doc.Definitions {
-		op := defn.Operation
-		if op == nil {
-			continue
-		}
-		opType := schema.operationType(op.Type)
-		if opType == nil {
-			errs = append(errs, &ResponseError{
-				Message: fmt.Sprintf("%v unsupported", op.Type),
-				Locations: []Location{
-					astPositionToLocation(defn.Operation.Start.ToPosition(source)),
-				},
-			})
-			continue
-		}
-		variables, varErrs := validateVariables(source, schema.types, op.VariableDefinitions)
-		if len(varErrs) > 0 {
-			if op.Name != nil {
-				for _, err := range varErrs {
-					errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name, err))
-				}
-			} else {
-				errs = append(errs, varErrs...)
-			}
-			continue
-		}
-		selErrs := validateSelectionSet(source, op.Type == gqlang.Query, variables, opType, op.SelectionSet)
+func (schema *Schema) validateOperation(source string, op *gqlang.Operation) []error {
+	opType := schema.operationType(op.Type)
+	if opType == nil {
+		return []error{&ResponseError{
+			Message: fmt.Sprintf("%v unsupported", op.Type),
+			Locations: []Location{
+				astPositionToLocation(op.Start.ToPosition(source)),
+			},
+		}}
+	}
+	variables, varErrs := validateVariables(source, schema.types, op.VariableDefinitions)
+	if len(varErrs) > 0 {
 		if op.Name != nil {
-			for _, err := range selErrs {
-				errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name, err))
+			for i, err := range varErrs {
+				varErrs[i] = xerrors.Errorf("operation %s: %w", op.Name, err)
 			}
-		} else {
-			errs = append(errs, selErrs...)
 		}
-		useErrs := validateVariableUsage(source, op.VariableDefinitions, variables)
-		if op.Name != nil {
-			for _, err := range useErrs {
-				errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name, err))
-			}
-		} else {
-			errs = append(errs, useErrs...)
+		return varErrs
+	}
+	v := &validationScope{
+		source:    source,
+		variables: variables,
+	}
+	var errs []error
+	selErrs := validateSelectionSet(v, op.Type == gqlang.Query, opType, op.SelectionSet)
+	if op.Name != nil {
+		for _, err := range selErrs {
+			errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name, err))
 		}
+	} else {
+		errs = append(errs, selErrs...)
+	}
+	useErrs := validateVariableUsage(v, op.VariableDefinitions)
+	if op.Name != nil {
+		for _, err := range useErrs {
+			errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name, err))
+		}
+	} else {
+		errs = append(errs, useErrs...)
 	}
 	return errs
+}
+
+// validationScope defines the symbols and position information used
+// during validation.
+type validationScope struct {
+	source    string
+	variables map[string]*validatedVariable
 }
 
 type validatedVariable struct {
@@ -209,18 +227,18 @@ func validateVariables(source string, typeMap map[string]*gqlType, defns *gqlang
 }
 
 // validateVariableUsage verifies that all variables defined in the operation are used. See https://graphql.github.io/graphql-spec/June2018/#sec-All-Variables-Used
-func validateVariableUsage(source string, defns *gqlang.VariableDefinitions, variables map[string]*validatedVariable) []error {
+func validateVariableUsage(v *validationScope, defns *gqlang.VariableDefinitions) []error {
 	if defns == nil {
 		return nil
 	}
 	var errs []error
 	for _, defn := range defns.Defs {
 		name := defn.Var.Name.Value
-		if !variables[name].used {
+		if !v.variables[name].used {
 			errs = append(errs, &ResponseError{
 				Message: fmt.Sprintf("unused variable $%s", name),
 				Locations: []Location{
-					astPositionToLocation(defn.Var.Dollar.ToPosition(source)),
+					astPositionToLocation(defn.Var.Dollar.ToPosition(v.source)),
 				},
 			})
 		}
@@ -228,7 +246,7 @@ func validateVariableUsage(source string, defns *gqlang.VariableDefinitions, var
 	return errs
 }
 
-func validateSelectionSet(source string, isRootQuery bool, variables map[string]*validatedVariable, typ *gqlType, set *gqlang.SelectionSet) []error {
+func validateSelectionSet(v *validationScope, isRootQuery bool, typ *gqlType, set *gqlang.SelectionSet) []error {
 	var errs []error
 	for _, selection := range set.Sel {
 		fieldInfo := typ.obj.field(selection.Field.Name.Value)
@@ -244,7 +262,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 				fieldInfo = schemaField()
 			}
 		}
-		loc := astPositionToLocation(selection.Field.Name.Start.ToPosition(source))
+		loc := astPositionToLocation(selection.Field.Name.Start.ToPosition(v.source))
 		if fieldInfo == nil {
 			// Field not found.
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Field-Selections-on-Objects-Interfaces-and-Unions-Types
@@ -258,13 +276,13 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 			continue
 		}
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Validation.Arguments
-		argsErrs := validateArguments(source, variables, fieldInfo.args, selection.Field.Arguments)
+		argsErrs := validateArguments(v, fieldInfo.args, selection.Field.Arguments)
 		if len(argsErrs) > 0 {
 			argsPos := selection.Field.Name.End()
 			if selection.Field.Arguments != nil {
 				argsPos = selection.Field.Arguments.RParen
 			}
-			argsLoc := astPositionToLocation(argsPos.ToPosition(source))
+			argsLoc := astPositionToLocation(argsPos.ToPosition(v.source))
 			for _, err := range argsErrs {
 				errs = append(errs, wrapFieldError(selection.Field.Key().Value, argsLoc, err))
 			}
@@ -276,7 +294,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 				errs = append(errs, &ResponseError{
 					Message: fmt.Sprintf("object field %q missing selection set", selection.Field.Name.Value),
 					Locations: []Location{
-						astPositionToLocation(selection.Field.End().ToPosition(source)),
+						astPositionToLocation(selection.Field.End().ToPosition(v.source)),
 					},
 					Path: []PathSegment{
 						{Field: selection.Field.Key().Value},
@@ -284,7 +302,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 				})
 				continue
 			}
-			subErrs := validateSelectionSet(source, false, variables, subsetType, selection.Field.SelectionSet)
+			subErrs := validateSelectionSet(v, false, subsetType, selection.Field.SelectionSet)
 			for _, err := range subErrs {
 				errs = append(errs, wrapFieldError(selection.Field.Key().Value, loc, err))
 			}
@@ -292,7 +310,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 			errs = append(errs, &ResponseError{
 				Message: fmt.Sprintf("scalar field %q must not have selection set", selection.Field.Name.Value),
 				Locations: []Location{
-					astPositionToLocation(selection.Field.SelectionSet.LBrace.ToPosition(source)),
+					astPositionToLocation(selection.Field.SelectionSet.LBrace.ToPosition(v.source)),
 				},
 				Path: []PathSegment{
 					{Field: selection.Field.Key().Value},
@@ -303,7 +321,7 @@ func validateSelectionSet(source string, isRootQuery bool, variables map[string]
 	var groups fieldGroups
 	groups.addSet(typ, set)
 	for _, group := range groups {
-		errs = append(errs, checkFieldMergability(source, group)...)
+		errs = append(errs, checkFieldMergability(v.source, group)...)
 	}
 	return errs
 }
@@ -448,7 +466,7 @@ func (gf groupedField) typ() *gqlType {
 	return gf.parentType.obj.field(gf.Name.Value).typ
 }
 
-func validateArguments(source string, variables map[string]*validatedVariable, defns inputValueDefinitionList, args *gqlang.Arguments) []error {
+func validateArguments(v *validationScope, defns inputValueDefinitionList, args *gqlang.Arguments) []error {
 	var argumentNames []string
 	argumentsByName := make(map[string][]*gqlang.Argument)
 	var endLocation []Location
@@ -468,7 +486,7 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 					Message: fmt.Sprintf("unknown argument %s", name),
 				}
 				for _, arg := range argumentsByName[name] {
-					err.Locations = append(err.Locations, astPositionToLocation(arg.Name.Start.ToPosition(source)))
+					err.Locations = append(err.Locations, astPositionToLocation(arg.Name.Start.ToPosition(v.source)))
 				}
 				errs = append(errs, err)
 				continue
@@ -479,14 +497,14 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 					Message: fmt.Sprintf("multiple values for argument %s", name),
 				}
 				for _, arg := range argumentsByName[name] {
-					err.Locations = append(err.Locations, astPositionToLocation(arg.Name.Start.ToPosition(source)))
+					err.Locations = append(err.Locations, astPositionToLocation(arg.Name.Start.ToPosition(v.source)))
 				}
 				errs = append(errs, err)
 				continue
 			}
 		}
 		endLocation = []Location{
-			astPositionToLocation(args.RParen.ToPosition(source)),
+			astPositionToLocation(args.RParen.ToPosition(v.source)),
 		}
 	}
 	// https://graphql.github.io/graphql-spec/June2018/#sec-Required-Arguments
@@ -508,7 +526,7 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 			errs = append(errs, &ResponseError{
 				Message: fmt.Sprintf("required argument %s cannot be null", defn.name),
 				Locations: []Location{
-					astPositionToLocation(arg.Value.Null.Start.ToPosition(source)),
+					astPositionToLocation(arg.Value.Null.Start.ToPosition(v.source)),
 				},
 			})
 		}
@@ -522,7 +540,7 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 		if len(args) == 0 {
 			continue
 		}
-		argErrs := validateValue(source, variables, defn.Type(), !defn.defaultValue.IsNull(), args[0].Value)
+		argErrs := validateValue(v, defn.Type(), !defn.defaultValue.IsNull(), args[0].Value)
 		for _, err := range argErrs {
 			errs = append(errs, xerrors.Errorf("argument %s: %w", defn.name, err))
 		}
@@ -531,29 +549,29 @@ func validateArguments(source string, variables map[string]*validatedVariable, d
 }
 
 func validateConstantValue(source string, typ *gqlType, val *gqlang.InputValue) []error {
-	return validateValue(source, nil, typ, false, val)
+	return validateValue(&validationScope{source: source}, typ, false, val)
 }
 
-func validateValue(source string, variables map[string]*validatedVariable, typ *gqlType, hasDefault bool, val *gqlang.InputValue) []error {
+func validateValue(v *validationScope, typ *gqlType, hasDefault bool, val *gqlang.InputValue) []error {
 	if val.Null != nil {
 		if !typ.isNullable() {
 			return []error{&ResponseError{
 				Message: fmt.Sprintf("null not permitted for %v", typ),
 				Locations: []Location{
-					astPositionToLocation(val.Null.Start.ToPosition(source)),
+					astPositionToLocation(val.Null.Start.ToPosition(v.source)),
 				},
 			}}
 		}
 		return nil
 	}
 	if val.VariableRef != nil {
-		vv := variables[val.VariableRef.Name.Value]
+		vv := v.variables[val.VariableRef.Name.Value]
 		// https://graphql.github.io/graphql-spec/June2018/#sec-All-Variable-Uses-Defined
 		if vv == nil {
 			return []error{&ResponseError{
 				Message: fmt.Sprintf("undefined variable $%s", val.VariableRef.Name.Value),
 				Locations: []Location{
-					astPositionToLocation(val.VariableRef.Dollar.ToPosition(source)),
+					astPositionToLocation(val.VariableRef.Dollar.ToPosition(v.source)),
 				},
 			}}
 		}
@@ -561,7 +579,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 			return []error{&ResponseError{
 				Message: err.Error(),
 				Locations: []Location{
-					astPositionToLocation(val.VariableRef.Dollar.ToPosition(source)),
+					astPositionToLocation(val.VariableRef.Dollar.ToPosition(v.source)),
 				},
 			}}
 		}
@@ -570,7 +588,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 	genericErr := &ResponseError{
 		Message: fmt.Sprintf("cannot coerce %v to %v", val, typ),
 		Locations: []Location{
-			astPositionToLocation(val.Start().ToPosition(source)),
+			astPositionToLocation(val.Start().ToPosition(v.source)),
 		},
 	}
 	switch {
@@ -600,11 +618,11 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 			// Attempt to validate as single-element list.
 			// Yes, I'm just as surprised as you are at this behavior,
 			// see https://graphql.github.io/graphql-spec/June2018/#sec-Type-System.List
-			return validateValue(source, variables, typ.listElem, false, val)
+			return validateValue(v, typ.listElem, false, val)
 		}
 		var errs []error
 		for i, elem := range val.List.Values {
-			elemErrs := validateValue(source, variables, typ.listElem, false, elem)
+			elemErrs := validateValue(v, typ.listElem, false, elem)
 			for _, err := range elemErrs {
 				errs = append(errs, xerrors.Errorf("list[%d]: %w", i, err))
 			}
@@ -623,7 +641,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 				errs = append(errs, &ResponseError{
 					Message: fmt.Sprintf("unknown input field %s for %v", name, typ),
 					Locations: []Location{
-						astPositionToLocation(field.Name.Start.ToPosition(source)),
+						astPositionToLocation(field.Name.Start.ToPosition(v.source)),
 					},
 				})
 				continue
@@ -639,7 +657,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 					Message: fmt.Sprintf("multiple input fields for %v.%s", typ.toNullable(), name),
 				}
 				for _, g := range fieldList {
-					e.Locations = append(e.Locations, astPositionToLocation(g.Name.Start.ToPosition(source)))
+					e.Locations = append(e.Locations, astPositionToLocation(g.Name.Start.ToPosition(v.source)))
 				}
 				errs = append(errs, e)
 			}
@@ -651,7 +669,7 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 					errs = append(errs, &ResponseError{
 						Message: fmt.Sprintf("missing required input field for %v.%s", typ.toNullable(), defn.name),
 						Locations: []Location{
-							astPositionToLocation(val.InputObject.RBrace.ToPosition(source)),
+							astPositionToLocation(val.InputObject.RBrace.ToPosition(v.source)),
 						},
 					})
 				}
@@ -662,12 +680,12 @@ func validateValue(source string, variables map[string]*validatedVariable, typ *
 				errs = append(errs, &ResponseError{
 					Message: fmt.Sprintf("required input field %v.%s is null", typ.toNullable(), defn.name),
 					Locations: []Location{
-						astPositionToLocation(field.Value.Null.Start.ToPosition(source)),
+						astPositionToLocation(field.Value.Null.Start.ToPosition(v.source)),
 					},
 				})
 				continue
 			}
-			fieldErrs := validateValue(source, variables, defn.Type(), !defn.defaultValue.IsNull(), field.Value)
+			fieldErrs := validateValue(v, defn.Type(), !defn.defaultValue.IsNull(), field.Value)
 			for _, err := range fieldErrs {
 				errs = append(errs, xerrors.Errorf("input field %s: %w", defn.name, err))
 			}
