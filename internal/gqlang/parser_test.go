@@ -789,6 +789,104 @@ input ItemInput {
 				},
 			},
 		},
+		{
+			name:  "FragmentSpread",
+			input: `{ ...myFields }`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Operation: &Operation{
+						Start: 0,
+						Type:  Query,
+						SelectionSet: &SelectionSet{
+							LBrace: 0,
+							Sel: []*Selection{
+								{FragmentSpread: &FragmentSpread{
+									Ellipsis: 2,
+									Name: &Name{
+										Start: 5,
+										Value: "myFields",
+									},
+								}},
+							},
+							RBrace: 14,
+						},
+					}},
+				},
+			},
+		},
+		{
+			name:  "InlineFragment/WithTypeCondition",
+			input: `{ ... on User { friends } }`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Operation: &Operation{
+						Start: 0,
+						Type:  Query,
+						SelectionSet: &SelectionSet{
+							LBrace: 0,
+							Sel: []*Selection{
+								{InlineFragment: &InlineFragment{
+									Ellipsis: 2,
+									Type: &TypeCondition{
+										On: 6,
+										Name: &Name{
+											Start: 9,
+											Value: "User",
+										},
+									},
+									SelectionSet: &SelectionSet{
+										LBrace: 14,
+										Sel: []*Selection{
+											{Field: &Field{
+												Name: &Name{
+													Start: 16,
+													Value: "friends",
+												},
+											}},
+										},
+										RBrace: 24,
+									},
+								}},
+							},
+							RBrace: 26,
+						},
+					}},
+				},
+			},
+		},
+		{
+			name:  "InlineFragment/WithoutTypeCondition",
+			input: `{ ... { friends } }`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Operation: &Operation{
+						Start: 0,
+						Type:  Query,
+						SelectionSet: &SelectionSet{
+							LBrace: 0,
+							Sel: []*Selection{
+								{InlineFragment: &InlineFragment{
+									Ellipsis: 2,
+									SelectionSet: &SelectionSet{
+										LBrace: 6,
+										Sel: []*Selection{
+											{Field: &Field{
+												Name: &Name{
+													Start: 8,
+													Value: "friends",
+												},
+											}},
+										},
+										RBrace: 16,
+									},
+								}},
+							},
+							RBrace: 18,
+						},
+					}},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

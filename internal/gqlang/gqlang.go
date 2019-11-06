@@ -104,7 +104,9 @@ type SelectionSet struct {
 // A Selection is either a field or a fragment.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Selection-Sets
 type Selection struct {
-	Field *Field
+	Field          *Field
+	FragmentSpread *FragmentSpread
+	InlineFragment *InlineFragment
 }
 
 // A Field is a discrete piece of information available to request within a
@@ -115,6 +117,13 @@ type Field struct {
 	Name         *Name
 	Arguments    *Arguments
 	SelectionSet *SelectionSet
+}
+
+func (f *Field) asSelection() *Selection {
+	if f == nil {
+		return nil
+	}
+	return &Selection{Field: f}
 }
 
 // Key returns the field's response key. Typically, this is the field's name,
@@ -685,6 +694,43 @@ func (nn *NonNullType) String() string {
 	default:
 		panic("unknown non-null type")
 	}
+}
+
+// A FragmentSpread is a reference to a fragment inside a selection set.
+// https://graphql.github.io/graphql-spec/June2018/#FragmentSpread
+type FragmentSpread struct {
+	Ellipsis Pos
+	Name     *Name
+}
+
+func (spread *FragmentSpread) asSelection() *Selection {
+	if spread == nil {
+		return nil
+	}
+	return &Selection{FragmentSpread: spread}
+}
+
+// String returns the spread as "...name".
+func (spread *FragmentSpread) String() string {
+	if spread == nil {
+		return ""
+	}
+	return "..." + spread.Name.String()
+}
+
+// An InlineFragment is an anonymous fragment inside a selection set.
+// https://graphql.github.io/graphql-spec/June2018/#InlineFragment
+type InlineFragment struct {
+	Ellipsis     Pos
+	Type         *TypeCondition // may be nil
+	SelectionSet *SelectionSet
+}
+
+func (frag *InlineFragment) asSelection() *Selection {
+	if frag == nil {
+		return nil
+	}
+	return &Selection{InlineFragment: frag}
 }
 
 // A FragmentDefinition is a selection of fields.

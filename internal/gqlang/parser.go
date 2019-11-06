@@ -201,11 +201,16 @@ func (p *parser) selectionSet() (*SelectionSet, []error) {
 	set := new(SelectionSet)
 	var errs []error
 	set.LBrace, set.RBrace, errs = p.group(lbrace, rbrace, "selection", func() []error {
+		if len(p.tokens) > 0 && p.tokens[0].kind == ellipsis {
+			sel, errs := p.fragment()
+			if sel != nil {
+				set.Sel = append(set.Sel, sel)
+			}
+			return errs
+		}
 		field, errs := p.field()
 		if field != nil {
-			set.Sel = append(set.Sel, &Selection{
-				Field: field,
-			})
+			set.Sel = append(set.Sel, field.asSelection())
 		}
 		return errs
 	})
@@ -639,6 +644,120 @@ func (p *parser) typeRef() (*TypeRef, []error) {
 			err: xerrors.Errorf("type: expected name or '[', found %q", tok),
 		}}
 	}
+}
+
+// fragment parses either a FragmentSpread or an InlineFragment.
+// See https://graphql.github.io/graphql-spec/June2018/#Selection
+func (p *parser) fragment() (*Selection, []error) {
+	// Don't prepend "selection:", since this method is only called in the context
+	// of selection set, which already prepends "selection:".
+
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("expected '...', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != ellipsis {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("expected '...', found %q", p.tokens[0]),
+		}}
+	}
+	if len(p.tokens) == 1 {
+		p.next() // Advance past the ellipsis to continue parsing selection set.
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("expected name, 'on', or '{', got EOF"),
+		}}
+	}
+	switch p.tokens[1].kind {
+	case name:
+		if p.tokens[1].source == "on" {
+			// Type conditions are only present on inline fragments.
+			frag, errs := p.inlineFragment()
+			return frag.asSelection(), errs
+		}
+		spread, errs := p.fragmentSpread()
+		return spread.asSelection(), errs
+	case lbrace:
+		// Selection sets are only present on inline fragments.
+		frag, errs := p.inlineFragment()
+		return frag.asSelection(), errs
+	default:
+		p.next() // Advance past the ellipsis to continue parsing selection set.
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("expected name, 'on', or '{', got EOF"),
+		}}
+	}
+}
+
+func (p *parser) fragmentSpread() (*FragmentSpread, []error) {
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("fragment spread: expected '...', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != ellipsis {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("fragment spread: expected '...', found %q", p.tokens[0]),
+		}}
+	}
+	spread := &FragmentSpread{
+		Ellipsis: p.next().start,
+	}
+	var err error
+	spread.Name, err = p.name()
+	if err != nil {
+		return nil, []error{xerrors.Errorf("fragment spread: %w", err)}
+	}
+	return spread, nil
+}
+
+func (p *parser) inlineFragment() (*InlineFragment, []error) {
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("inline fragment: expected '...', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != ellipsis {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("inline fragment: expected '...', found %q", p.tokens[0]),
+		}}
+	}
+	frag := &InlineFragment{
+		Ellipsis: p.next().start,
+	}
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("inline fragment: expected 'on' or '{', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind == name && p.tokens[0].source == "on" {
+		var err error
+		frag.Type, err = p.typeCondition()
+		if err != nil {
+			return nil, []error{xerrors.Errorf("inline fragment: %w", err)}
+		}
+	} else if p.tokens[0].kind != lbrace {
+		// Would be caught by parsing selection set, but give a better error message.
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("inline fragment: expected 'on' or '{', found %q", p.tokens[0]),
+		}}
+	}
+	var errs []error
+	frag.SelectionSet, errs = p.selectionSet()
+	for i, err := range errs {
+		errs[i] = xerrors.Errorf("inline fragment: %w", err)
+	}
+	return frag, errs
 }
 
 func (p *parser) fragmentDefinition() (*FragmentDefinition, []error) {
