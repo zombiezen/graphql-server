@@ -116,6 +116,9 @@ func TestIntrospection(t *testing.T) {
 							isDeprecated
 							deprecationReason
 						}
+						interfaces {
+							name
+						}
 					}
 				}`,
 			},
@@ -137,6 +140,7 @@ func TestIntrospection(t *testing.T) {
 							{key: "deprecationReason", value: valueExpectations{null: true}},
 						}},
 					}}},
+					{key: "interfaces", value: valueExpectations{list: []valueExpectations{}}},
 				}}},
 			},
 		},
@@ -191,6 +195,9 @@ func TestIntrospection(t *testing.T) {
 							name
 						}
 						types {
+							name
+						}
+						directives {
 							name
 						}
 					}
@@ -257,6 +264,7 @@ func TestIntrospection(t *testing.T) {
 							{key: "name", value: valueExpectations{scalar: "Foo"}},
 						}},
 					}}},
+					{key: "directives", value: valueExpectations{list: []valueExpectations{}}},
 				}}},
 			},
 		},

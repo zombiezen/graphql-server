@@ -253,7 +253,10 @@ func (typ *gqlType) Fields() *[]objectTypeField {
 
 // Interfaces is not implemented.
 func (typ *gqlType) Interfaces() *[]interface{} {
-	return nil
+	if !typ.isObject() {
+		return nil
+	}
+	return new([]interface{})
 }
 
 // PossibleTypes is not implemented.

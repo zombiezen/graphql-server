@@ -72,7 +72,7 @@ type schemaObject struct {
 	QueryType        *gqlType
 	MutationType     *gqlType
 	SubscriptionType *gqlType
-	Directives       *[]interface{}
+	Directives       []interface{}
 }
 
 func (schema *Schema) introspectSchema(ctx context.Context, variables map[string]Value, field *SelectedField) (Value, []error) {
