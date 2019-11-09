@@ -79,6 +79,7 @@ func (schema *Schema) introspectSchema(ctx context.Context, variables map[string
 	s := &schemaObject{
 		QueryType:    schema.query,
 		MutationType: schema.mutation,
+		Types:        builtins(true),
 	}
 	for _, name := range schema.typeOrder {
 		s.Types = append(s.Types, schema.types[name])

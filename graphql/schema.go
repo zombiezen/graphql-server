@@ -140,16 +140,33 @@ func ParseSchemaFile(path string, opts *SchemaOptions) (*Schema, error) {
 
 const reservedPrefix = "__"
 
-func buildTypeMap(source string, opts schemaOptions, doc *gqlang.Document) (map[string]*gqlType, error) {
-	typeMap := make(map[string]*gqlType)
-	builtins := []*gqlType{
+func builtins(includeIntrospection bool) []*gqlType {
+	b := []*gqlType{
 		booleanType,
 		floatType,
 		intType,
 		stringType,
 		idType,
 	}
-	for _, b := range builtins {
+	if !includeIntrospection {
+		return b
+	}
+	i := introspectionSchema()
+	return append(b,
+		i.types["__Schema"],
+		i.types["__Type"],
+		i.types["__Field"],
+		i.types["__InputValue"],
+		i.types["__EnumValue"],
+		i.types["__TypeKind"],
+		i.types["__Directive"],
+		i.types["__DirectiveLocation"],
+	)
+}
+
+func buildTypeMap(source string, opts schemaOptions, doc *gqlang.Document) (map[string]*gqlType, error) {
+	typeMap := make(map[string]*gqlType)
+	for _, b := range builtins(!opts.internal) {
 		typeMap[b.String()] = b
 	}
 	// First pass: fill out lookup table.

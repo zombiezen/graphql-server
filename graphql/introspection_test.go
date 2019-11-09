@@ -206,6 +206,47 @@ func TestIntrospection(t *testing.T) {
 					}}},
 					{key: "subscriptionType", value: valueExpectations{null: true}},
 					{key: "types", value: valueExpectations{list: []valueExpectations{
+						// TODO(someday): Order here doesn't matter, but at the moment,
+						// the implementation will always return this order.
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "Boolean"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "Float"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "Int"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "String"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "ID"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "__Schema"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "__Type"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "__Field"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "__InputValue"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "__EnumValue"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "__TypeKind"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "__Directive"}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "__DirectiveLocation"}},
+						}},
 						{object: []fieldExpectations{
 							{key: "name", value: valueExpectations{scalar: "Query"}},
 						}},
