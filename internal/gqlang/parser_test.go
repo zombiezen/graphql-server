@@ -887,6 +887,101 @@ input ItemInput {
 				},
 			},
 		},
+		{
+			name:  "Deprecated/Field",
+			input: `type ExampleType { old: String @deprecated(reason: "bad") }`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{Object: &ObjectTypeDefinition{
+						Keyword: 0,
+						Name: &Name{
+							Start: 5,
+							Value: "ExampleType",
+						},
+						Fields: &FieldsDefinition{
+							LBrace: 17,
+							Defs: []*FieldDefinition{
+								{
+									Name: &Name{
+										Start: 19,
+										Value: "old",
+									},
+									Colon: 22,
+									Type: &TypeRef{Named: &Name{
+										Start: 24,
+										Value: "String",
+									}},
+									Directives: Directives{
+										{
+											At: 31,
+											Name: &Name{
+												Start: 32,
+												Value: "deprecated",
+											},
+											Arguments: &Arguments{
+												LParen: 42,
+												Args: []*Argument{
+													{
+														Name: &Name{
+															Start: 43,
+															Value: "reason",
+														},
+														Colon: 49,
+														Value: &InputValue{Scalar: &ScalarValue{
+															Start: 51,
+															Type:  StringScalar,
+															Raw:   `"bad"`,
+														}},
+													},
+												},
+												RParen: 56,
+											},
+										},
+									},
+								},
+							},
+							RBrace: 58,
+						},
+					}}},
+				},
+			},
+		},
+		{
+			name:  "Deprecated/Enum",
+			input: `enum Foo { BAR @deprecated }`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{Enum: &EnumTypeDefinition{
+						Keyword: 0,
+						Name: &Name{
+							Start: 5,
+							Value: "Foo",
+						},
+						Values: &EnumValuesDefinition{
+							LBrace: 9,
+							Values: []*EnumValueDefinition{
+								{
+									Value: &Name{
+										Start: 11,
+										Value: "BAR",
+									},
+									Directives: Directives{
+										{
+											At: 15,
+											Name: &Name{
+												Start: 16,
+												Value: "deprecated",
+											},
+										},
+									},
+								},
+							},
+							RBrace: 27,
+						},
+					}}},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -646,6 +646,35 @@ func (p *parser) typeRef() (*TypeRef, []error) {
 	}
 }
 
+func (p *parser) directives(isConst bool) (Directives, []error) {
+	var results Directives
+	var errs []error
+	for len(p.tokens) > 0 && p.tokens[0].kind == atSign {
+		d := &Directive{
+			At: p.next().start,
+		}
+		var err error
+		d.Name, err = p.name()
+		if err != nil {
+			errs = append(errs, xerrors.Errorf("directive: %w", err))
+			return results, errs
+		}
+		results = append(results, d)
+		if len(p.tokens) == 0 {
+			break
+		}
+		if p.tokens[0].kind != lparen {
+			continue
+		}
+		var argErrs []error
+		d.Arguments, argErrs = p.arguments(isConst)
+		for _, err := range argErrs {
+			errs = append(errs, xerrors.Errorf("@%s directive: %w", d.Name.Value, err))
+		}
+	}
+	return results, errs
+}
+
 // fragment parses either a FragmentSpread or an InlineFragment.
 // See https://graphql.github.io/graphql-spec/June2018/#Selection
 func (p *parser) fragment() (*Selection, []error) {
@@ -947,6 +976,9 @@ func (p *parser) fieldDefinition() (*FieldDefinition, []error) {
 	var typeErrs []error
 	field.Type, typeErrs = p.typeRef()
 	errs = append(errs, typeErrs...)
+	var directiveErrs []error
+	field.Directives, directiveErrs = p.directives(true)
+	errs = append(errs, directiveErrs...)
 	return field, errs
 }
 
@@ -1016,10 +1048,15 @@ func (p *parser) enumValuesDefinition() (*EnumValuesDefinition, []error) {
 			return []error{err}
 		}
 		defn.Values = append(defn.Values, valueDefn)
+
+		var errs []error
 		if v := valueDefn.Value.Value; v == "null" || v == "true" || v == "false" {
-			return []error{xerrors.Errorf("expected enum name, found reserved name %q", v)}
+			errs = append(errs, xerrors.Errorf("expected enum name, found reserved name %q", v))
 		}
-		return nil
+		var directiveErrs []error
+		valueDefn.Directives, directiveErrs = p.directives(true)
+		errs = append(errs, directiveErrs...)
+		return errs
 	})
 	if defn.LBrace == -1 {
 		return nil, errs

@@ -720,6 +720,16 @@ func (nn *NonNullType) String() string {
 	}
 }
 
+// Directives annotate parts of a GraphQL document.
+type Directives []*Directive
+
+// A Directive is a single annotation.
+type Directive struct {
+	At        Pos
+	Name      *Name
+	Arguments *Arguments // may be nil
+}
+
 // A FragmentSpread is a reference to a fragment inside a selection set.
 // https://graphql.github.io/graphql-spec/June2018/#FragmentSpread
 type FragmentSpread struct {
@@ -915,6 +925,7 @@ type FieldDefinition struct {
 	Args        *ArgumentsDefinition
 	Colon       Pos
 	Type        *TypeRef
+	Directives  Directives
 }
 
 // ArgumentsDefinition specifies the arguments for a FieldDefinition.
@@ -951,6 +962,7 @@ type EnumValuesDefinition struct {
 type EnumValueDefinition struct {
 	Description *Description
 	Value       *Name
+	Directives  Directives
 }
 
 // InputObjectTypeDefinition names an input object type.
