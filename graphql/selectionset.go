@@ -116,7 +116,7 @@ func (set *SelectionSet) addField(s *selectionSetScope, typ *gqlType, f *gqlang.
 		set.fields = append(set.fields, field)
 
 		var argErrs []error
-		field.args, argErrs = coerceArgumentValues(s, fieldInfo, f.Arguments)
+		field.args, argErrs = coerceArgumentValues(s, fieldInfo.args, f.Arguments)
 		for _, err := range argErrs {
 			errs = append(errs, wrapFieldError(field.key, field.loc, err))
 		}

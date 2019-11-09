@@ -196,12 +196,18 @@ func buildTypeMap(source string, opts schemaOptions, doc *gqlang.Document) (map[
 					return nil, xerrors.Errorf("%v: use of reserved name %q", v.Value.Start.ToPosition(source), sym)
 				}
 				if info.has(sym) {
-					return nil, xerrors.Errorf("%v: multiple enum values with name %q", sym)
+					return nil, xerrors.Errorf("%v: multiple enum values with name %q", v.Value.Start.ToPosition(source), sym)
 				}
-				info.values = append(info.values, enumValue{
+				ev := enumValue{
 					name:        sym,
 					description: opts.description(v.Description),
-				})
+				}
+				var err error
+				ev.deprecated, ev.deprecationReason, err = processTypeDirectives(source, typeMap, v.Directives)
+				if err != nil {
+					return nil, err
+				}
+				info.values = append(info.values, ev)
 			}
 			typeMap[name.Value] = newEnumType(info, opts.description(t.Enum.Description))
 		case t.Object != nil:
@@ -285,6 +291,11 @@ func fillObjectTypeFields(source string, opts schemaOptions, typeMap map[string]
 				f.args = append(f.args, argDef)
 			}
 		}
+		var err error
+		f.deprecated, f.deprecationReason, err = processTypeDirectives(source, typeMap, fieldDefn.Directives)
+		if err != nil {
+			return err
+		}
 		info.fields = append(info.fields, f)
 	}
 	return nil
@@ -318,6 +329,40 @@ func fillInputObjectTypeFields(source string, opts schemaOptions, typeMap map[st
 		info.fields = append(info.fields, f)
 	}
 	return nil
+}
+
+func processTypeDirectives(source string, typeMap map[string]*gqlType, directives gqlang.Directives) (deprecated bool, deprecationReason NullString, _ error) {
+	v := &validationScope{
+		source: source,
+		types:  typeMap,
+	}
+	s := &selectionSetScope{
+		source: source,
+		types:  typeMap,
+	}
+	for _, d := range directives {
+		if d.Name.Value != deprecatedDirective.Name {
+			return false, NullString{}, xerrors.Errorf("%v: unknown directive @%s", d.At.ToPosition(source), d.Name.Value)
+		}
+		if deprecated {
+			return false, NullString{}, xerrors.Errorf("%v: multiple @%s directives", d.At.ToPosition(source), d.Name.Value)
+		}
+
+		deprecated = true
+		argErrs := validateArguments(v, deprecatedDirective.Args, d.Arguments)
+		if len(argErrs) > 0 {
+			return false, NullString{}, xerrors.Errorf("%v: @%s directive: %w", d.Arguments.LParen.ToPosition(source), d.Name.Value, argErrs[0])
+		}
+		var args map[string]Value
+		args, argErrs = coerceArgumentValues(s, deprecatedDirective.Args, d.Arguments)
+		if len(argErrs) > 0 {
+			return false, NullString{}, xerrors.Errorf("%v: @%s directive: %w", d.Arguments.LParen.ToPosition(source), d.Name.Value, argErrs[0])
+		}
+		if r := args["reason"]; !r.IsNull() {
+			deprecationReason = NullString{S: r.Scalar(), Valid: true}
+		}
+	}
+	return deprecated, deprecationReason, nil
 }
 
 func resolveTypeRef(typeMap map[string]*gqlType, ref *gqlang.TypeRef) *gqlType {

@@ -126,10 +126,10 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 // coerceArgumentValues uses the algorithm in
 // https://graphql.github.io/graphql-spec/June2018/#sec-Coercing-Field-Arguments
 // but assumes the arguments were validated.
-func coerceArgumentValues(s *selectionSetScope, fieldInfo *objectTypeField, args *gqlang.Arguments) (map[string]Value, []error) {
+func coerceArgumentValues(s *selectionSetScope, argDefns inputValueDefinitionList, args *gqlang.Arguments) (map[string]Value, []error) {
 	argValues := make(map[string]Value)
 	var errs []error
-	for _, defn := range fieldInfo.args {
+	for _, defn := range argDefns {
 		arg := args.ByName(defn.name)
 		if arg == nil {
 			argValues[defn.name] = defn.defaultValue

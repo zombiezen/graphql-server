@@ -57,6 +57,9 @@ func (enum *enumType) has(sym string) bool {
 type enumValue struct {
 	name        string
 	description string
+
+	deprecated        bool
+	deprecationReason NullString
 }
 
 func (v enumValue) Name() string {
@@ -68,11 +71,11 @@ func (v enumValue) Description() NullString {
 }
 
 func (v enumValue) IsDeprecated() bool {
-	return false
+	return v.deprecated
 }
 
 func (v enumValue) DeprecationReason() NullString {
-	return NullString{}
+	return v.deprecationReason
 }
 
 type objectType struct {
@@ -243,11 +246,16 @@ func (typ *gqlType) Description() NullString {
 }
 
 // Fields returns the list of object fields.
-func (typ *gqlType) Fields() *[]objectTypeField {
+func (typ *gqlType) Fields(args map[string]Value) *[]objectTypeField {
 	if !typ.isObject() {
 		return nil
 	}
-	fields := append([]objectTypeField(nil), typ.obj.fields...)
+	var fields []objectTypeField
+	for _, f := range typ.obj.fields {
+		if !f.deprecated || args["includeDeprecated"].Boolean() {
+			fields = append(fields, f)
+		}
+	}
 	return &fields
 }
 
@@ -265,11 +273,16 @@ func (typ *gqlType) PossibleTypes() *[]interface{} {
 }
 
 // EnumValues returns the list of permitted values for an enumeration type.
-func (typ *gqlType) EnumValues() *[]enumValue {
+func (typ *gqlType) EnumValues(args map[string]Value) *[]enumValue {
 	if !typ.isEnum() {
 		return nil
 	}
-	vals := append([]enumValue(nil), typ.enum.values...)
+	var vals []enumValue
+	for _, v := range typ.enum.values {
+		if !v.deprecated || args["includeDeprecated"].Boolean() {
+			vals = append(vals, v)
+		}
+	}
 	return &vals
 }
 
@@ -405,6 +418,9 @@ type objectTypeField struct {
 	description string
 	typ         *gqlType
 	args        inputValueDefinitionList
+
+	deprecated        bool
+	deprecationReason NullString
 }
 
 func (f *objectTypeField) Name() string {
@@ -425,11 +441,11 @@ func (f objectTypeField) Type() *gqlType {
 }
 
 func (f objectTypeField) IsDeprecated() bool {
-	return false
+	return f.deprecated
 }
 
 func (f objectTypeField) DeprecationReason() NullString {
-	return NullString{}
+	return f.deprecationReason
 }
 
 type inputValueDefinition struct {

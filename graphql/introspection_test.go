@@ -199,6 +199,14 @@ func TestIntrospection(t *testing.T) {
 						}
 						directives {
 							name
+							locations
+							args {
+								name
+								type {
+									kind
+									name
+								}
+							}
 						}
 					}
 				}`,
@@ -264,7 +272,26 @@ func TestIntrospection(t *testing.T) {
 							{key: "name", value: valueExpectations{scalar: "Foo"}},
 						}},
 					}}},
-					{key: "directives", value: valueExpectations{list: []valueExpectations{}}},
+					{key: "directives", value: valueExpectations{list: []valueExpectations{
+						// TODO(someday): Order here doesn't matter, but at the moment,
+						// the implementation will always return this order.
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "deprecated"}},
+							{key: "locations", value: valueExpectations{list: []valueExpectations{
+								{scalar: "FIELD_DEFINITION"},
+								{scalar: "ENUM_VALUE"},
+							}}},
+							{key: "args", value: valueExpectations{list: []valueExpectations{
+								{object: []fieldExpectations{
+									{key: "name", value: valueExpectations{scalar: "reason"}},
+									{key: "type", value: valueExpectations{object: []fieldExpectations{
+										{key: "kind", value: valueExpectations{scalar: "SCALAR"}},
+										{key: "name", value: valueExpectations{scalar: "String"}},
+									}}},
+								}},
+							}}},
+						}},
+					}}},
 				}}},
 			},
 		},
@@ -289,6 +316,182 @@ func TestIntrospection(t *testing.T) {
 				{key: "__typename", value: valueExpectations{scalar: "Query"}},
 				{key: "myObject", value: valueExpectations{object: []fieldExpectations{
 					{key: "__typename", value: valueExpectations{scalar: "MyType"}},
+				}}},
+			},
+		},
+		{
+			name: "Deprecated/Field/DefaultReason",
+			schema: `
+				type Query {
+					foo: String @deprecated
+				}
+			`,
+			request: Request{
+				Query: `{
+					__type(name: "Query") {
+						fields(includeDeprecated: true) {
+							name
+							isDeprecated
+							deprecationReason
+						}
+					}
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "__type", value: valueExpectations{object: []fieldExpectations{
+					{key: "fields", value: valueExpectations{list: []valueExpectations{
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "foo"}},
+							{key: "isDeprecated", value: valueExpectations{scalar: "true"}},
+							{key: "deprecationReason", value: valueExpectations{scalar: "No longer supported"}},
+						}},
+					}}},
+				}}},
+			},
+		},
+		{
+			name: "Deprecated/Field/CustomReason",
+			schema: `
+				type Query {
+					foo: String @deprecated(reason: "bar")
+				}
+			`,
+			request: Request{
+				Query: `{
+					__type(name: "Query") {
+						fields(includeDeprecated: true) {
+							name
+							isDeprecated
+							deprecationReason
+						}
+					}
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "__type", value: valueExpectations{object: []fieldExpectations{
+					{key: "fields", value: valueExpectations{list: []valueExpectations{
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "foo"}},
+							{key: "isDeprecated", value: valueExpectations{scalar: "true"}},
+							{key: "deprecationReason", value: valueExpectations{scalar: "bar"}},
+						}},
+					}}},
+				}}},
+			},
+		},
+		{
+			name: "Deprecated/Field/HideFromList",
+			schema: `
+				type Query {
+					foo: String @deprecated
+				}
+			`,
+			request: Request{
+				Query: `{
+					__type(name: "Query") {
+						fields {
+							name
+						}
+					}
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "__type", value: valueExpectations{object: []fieldExpectations{
+					{key: "fields", value: valueExpectations{list: []valueExpectations{}}},
+				}}},
+			},
+		},
+		{
+			name: "Deprecated/Enum/DefaultReason",
+			schema: `
+				type Query {
+					foo: String
+				}
+
+				enum MyEnum {
+					FOO @deprecated
+				}
+			`,
+			request: Request{
+				Query: `{
+					__type(name: "MyEnum") {
+						enumValues(includeDeprecated: true) {
+							name
+							isDeprecated
+							deprecationReason
+						}
+					}
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "__type", value: valueExpectations{object: []fieldExpectations{
+					{key: "enumValues", value: valueExpectations{list: []valueExpectations{
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "FOO"}},
+							{key: "isDeprecated", value: valueExpectations{scalar: "true"}},
+							{key: "deprecationReason", value: valueExpectations{scalar: "No longer supported"}},
+						}},
+					}}},
+				}}},
+			},
+		},
+		{
+			name: "Deprecated/Enum/CustomReason",
+			schema: `
+				type Query {
+					foo: String
+				}
+
+				enum MyEnum {
+					FOO @deprecated(reason: "bar")
+				}
+			`,
+			request: Request{
+				Query: `{
+					__type(name: "MyEnum") {
+						enumValues(includeDeprecated: true) {
+							name
+							isDeprecated
+							deprecationReason
+						}
+					}
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "__type", value: valueExpectations{object: []fieldExpectations{
+					{key: "enumValues", value: valueExpectations{list: []valueExpectations{
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "FOO"}},
+							{key: "isDeprecated", value: valueExpectations{scalar: "true"}},
+							{key: "deprecationReason", value: valueExpectations{scalar: "bar"}},
+						}},
+					}}},
+				}}},
+			},
+		},
+		{
+			name: "Deprecated/Enum/HideFromList",
+			schema: `
+				type Query {
+					foo: String
+				}
+
+				enum MyEnum {
+					FOO @deprecated
+				}
+			`,
+			request: Request{
+				Query: `{
+					__type(name: "MyEnum") {
+						enumValues {
+							name
+						}
+					}
+				}`,
+			},
+			want: []fieldExpectations{
+				{key: "__type", value: valueExpectations{object: []fieldExpectations{
+					{key: "enumValues", value: valueExpectations{list: []valueExpectations{}}},
 				}}},
 			},
 		},

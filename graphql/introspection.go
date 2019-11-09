@@ -72,7 +72,7 @@ type schemaObject struct {
 	QueryType        *gqlType
 	MutationType     *gqlType
 	SubscriptionType *gqlType
-	Directives       []interface{}
+	Directives       []*directive
 }
 
 func (schema *Schema) introspectSchema(ctx context.Context, variables map[string]Value, field *SelectedField) (Value, []error) {
@@ -80,6 +80,9 @@ func (schema *Schema) introspectSchema(ctx context.Context, variables map[string
 		QueryType:    schema.query,
 		MutationType: schema.mutation,
 		Types:        builtins(true),
+		Directives: []*directive{
+			&deprecatedDirective,
+		},
 	}
 	for _, name := range schema.typeOrder {
 		s.Types = append(s.Types, schema.types[name])
@@ -104,6 +107,31 @@ func (schema *Schema) introspectType(ctx context.Context, variables map[string]V
 		errs[i] = wrapFieldError(field.key, field.loc, err)
 	}
 	return v, errs
+}
+
+// directive is a representation of __Directive.
+type directive struct {
+	Name        string
+	Description NullString
+	Locations   []string
+	Args        inputValueDefinitionList
+}
+
+var deprecatedDirective = directive{
+	Name: "deprecated",
+	Locations: []string{
+		"FIELD_DEFINITION",
+		"ENUM_VALUE",
+	},
+	Args: inputValueDefinitionList{
+		{
+			name: "reason",
+			defaultValue: Value{
+				typ: stringType,
+				val: "No longer supported",
+			},
+		},
+	},
 }
 
 var introspect struct {
