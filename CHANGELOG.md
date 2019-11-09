@@ -5,7 +5,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased][]
 
+This release focused on implementing the functionality necessary to make GraphQL
+servers operate correctly with [GraphQL Playground][]. Beyond introspection
+improvements, the largest new user-facing feature is [fragments][].
+
 [Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.1.0...HEAD
+[GraphQL Playground]: https://github.com/prisma-labs/graphql-playground
+[fragments]: https://graphql.org/learn/queries/#fragments
+
+### Added
+
+-  Fragments are now fully supported. There's no new API: fields from fragments
+   are added to the `SelectionSet` like normal fields. ([#9][])
+-  Schemas can now use the `@deprecated` annotation on fields and annotations.
+   ([#11][])
+-  A [new option][IgnoreDescriptions] for `graphql.ParseSchema` permits
+   stripping descriptions to avoid leaking information from introspection.
+   ([#4][])
+-  A new function, [`graphql.ParseSchemaFile`][], provides a shortcut for
+   reading a schema from the local filesystem. ([#25][])
+-  [Code of Conduct][]
+
+[#4]: https://github.com/zombiezen/graphql-server/issues/4
+[#9]: https://github.com/zombiezen/graphql-server/issues/9
+[#11]: https://github.com/zombiezen/graphql-server/issues/11
+[#25]: https://github.com/zombiezen/graphql-server/issues/25
+[Code of Conduct]: https://github.com/zombiezen/graphql-server/blob/master/CODE_OF_CONDUCT.md
+[IgnoreDescriptions]: https://godoc.org/zombiezen.com/go/graphql-server/graphql#SchemaOptions.IgnoreDescriptions
+[`graphql.ParseSchemaFile`]: https://godoc.org/zombiezen.com/go/graphql-server/graphql#ParseSchemaFile
+
+### Changed
+
+-  `graphqlhttp.Handler` handles `OPTIONS` requests by returning 204 No Content.
+   ([#21][])
+
+[#21]: https://github.com/zombiezen/graphql-server/issues/21
+
+### Fixed
+
+-  Permit field merging. ([#2][] and [#24][])
+-  Built-in types are now surfaced in introspection. ([#5][])
+-  Requesting `__schema.directives` no longer causes an error.
+-  `__type.interfaces` will be an empty list for objects.
+
+[#2]: https://github.com/zombiezen/graphql-server/issues/2
+[#5]: https://github.com/zombiezen/graphql-server/issues/5
+[#24]: https://github.com/zombiezen/graphql-server/issues/24
 
 ## [0.1.0][]
 
