@@ -42,11 +42,17 @@ func NewHandler(server *graphql.Server) *Handler {
 
 // ServeHTTP executes a GraphQL request.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	const allowedMethods = "GET, HEAD, OPTIONS, POST"
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", allowedMethods)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	gqlRequest, err := Parse(h.server.Schema(), r)
 	if err != nil {
 		code := StatusCode(err)
 		if code == http.StatusMethodNotAllowed {
-			w.Header().Set("Allow", "GET, HEAD, POST")
+			w.Header().Set("Allow", allowedMethods)
 		}
 		http.Error(w, err.Error(), code)
 		return
