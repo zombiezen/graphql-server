@@ -17,6 +17,7 @@
 package graphql
 
 import (
+	"golang.org/x/xerrors"
 	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
 
@@ -26,14 +27,23 @@ type SelectionSet struct {
 	fields []*SelectedField
 }
 
+// selectionSetScope defines the symbols and position information used
+// during validation.
+type selectionSetScope struct {
+	source    string
+	doc       *gqlang.Document // for the fragments
+	types     map[string]*gqlType
+	variables map[string]Value
+}
+
 // newSelectionSet returns a new selection set from the request's AST.
 // It assumes that the AST has been validated.
-func newSelectionSet(source string, variables map[string]Value, typ *objectType, ast *gqlang.SelectionSet) (*SelectionSet, []error) {
+func newSelectionSet(s *selectionSetScope, typ *gqlType, ast *gqlang.SelectionSet) (*SelectionSet, []error) {
 	if ast == nil {
 		return nil, nil
 	}
 	sel := new(SelectionSet)
-	errs := sel.merge(source, variables, typ, ast)
+	errs := sel.merge(s, typ, ast)
 	return sel, errs
 }
 
@@ -43,26 +53,44 @@ func newSelectionSet(source string, variables map[string]Value, typ *objectType,
 //
 // See https://graphql.github.io/graphql-spec/June2018/#sec-Field-Collection and
 // https://graphql.github.io/graphql-spec/June2018/#MergeSelectionSets%28%29
-func (sel *SelectionSet) merge(source string, variables map[string]Value, typ *objectType, ast *gqlang.SelectionSet) []error {
+func (set *SelectionSet) merge(s *selectionSetScope, typ *gqlType, ast *gqlang.SelectionSet) []error {
 	if ast == nil {
 		return nil
 	}
 	var errs []error
-	for _, s := range ast.Sel {
-		if s.Field != nil {
-			errs = append(errs, sel.addField(source, variables, typ, s.Field)...)
+	for _, sel := range ast.Sel {
+		switch {
+		case sel.Field != nil:
+			errs = append(errs, set.addField(s, typ, sel.Field)...)
+		case sel.FragmentSpread != nil:
+			name := sel.FragmentSpread.Name.Value
+			frag := s.doc.FindFragment(name)
+			fragType := s.types[frag.Type.Name.Value]
+			mergeErrs := set.merge(s, fragType, frag.SelectionSet)
+			for _, err := range mergeErrs {
+				errs = append(errs, xerrors.Errorf("fragment %s: %w", name, err))
+			}
+		case sel.InlineFragment != nil:
+			fragType := typ
+			if sel.InlineFragment.Type != nil {
+				fragType = s.types[sel.InlineFragment.Type.Name.Value]
+			}
+			errs = append(errs, set.merge(s, fragType, sel.InlineFragment.SelectionSet)...)
+		default:
+			panic("unknown selection type")
 		}
 	}
 	return errs
 }
 
-func (sel *SelectionSet) addField(source string, variables map[string]Value, typ *objectType, f *gqlang.Field) []error {
+func (set *SelectionSet) addField(s *selectionSetScope, typ *gqlType, f *gqlang.Field) []error {
 	name := f.Name.Value
 	key := name
 	if f.Alias != nil {
 		key = f.Alias.Value
 	}
-	fieldInfo := typ.field(name)
+	// TODO(someday): Make generic for interface or union.
+	fieldInfo := typ.obj.field(name)
 	// Validation determines whether this is a valid reference to the
 	// reserved fields.
 	switch name {
@@ -74,7 +102,7 @@ func (sel *SelectionSet) addField(source string, variables map[string]Value, typ
 		fieldInfo = typeByNameField()
 	}
 
-	field := sel.find(key)
+	field := set.find(key)
 	var errs []error
 	if field == nil {
 		// Validation rejects any fields that have the same key but differing
@@ -83,12 +111,12 @@ func (sel *SelectionSet) addField(source string, variables map[string]Value, typ
 		field = &SelectedField{
 			name: name,
 			key:  key,
-			loc:  astPositionToLocation(f.Start().ToPosition(source)),
+			loc:  astPositionToLocation(f.Start().ToPosition(s.source)),
 		}
-		sel.fields = append(sel.fields, field)
+		set.fields = append(set.fields, field)
 
 		var argErrs []error
-		field.args, argErrs = coerceArgumentValues(source, variables, fieldInfo, f.Arguments)
+		field.args, argErrs = coerceArgumentValues(s, fieldInfo, f.Arguments)
 		for _, err := range argErrs {
 			errs = append(errs, wrapFieldError(field.key, field.loc, err))
 		}
@@ -98,7 +126,7 @@ func (sel *SelectionSet) addField(source string, variables map[string]Value, typ
 	}
 
 	if fieldSelType := fieldInfo.typ.selectionSetType(); fieldSelType != nil {
-		subErrs := field.sub.merge(source, variables, fieldSelType.obj, f.SelectionSet)
+		subErrs := field.sub.merge(s, fieldSelType, f.SelectionSet)
 		for _, err := range subErrs {
 			errs = append(errs, wrapFieldError(field.key, field.loc, err))
 		}
@@ -106,11 +134,11 @@ func (sel *SelectionSet) addField(source string, variables map[string]Value, typ
 	return errs
 }
 
-func (sel *SelectionSet) find(key string) *SelectedField {
-	if sel == nil {
+func (set *SelectionSet) find(key string) *SelectedField {
+	if set == nil {
 		return nil
 	}
-	for _, f := range sel.fields {
+	for _, f := range set.fields {
 		if f.key == key {
 			return f
 		}
@@ -119,11 +147,11 @@ func (sel *SelectionSet) find(key string) *SelectedField {
 }
 
 // Has reports whether the selection set includes the field with the given name.
-func (sel *SelectionSet) Has(name string) bool {
-	if sel == nil {
+func (set *SelectionSet) Has(name string) bool {
+	if set == nil {
 		return false
 	}
-	for _, f := range sel.fields {
+	for _, f := range set.fields {
 		if f.name == name {
 			return true
 		}
@@ -133,12 +161,12 @@ func (sel *SelectionSet) Has(name string) bool {
 
 // FieldsWithName returns the fields in the selection set with the given name.
 // There may be multiple in the case of a field alias.
-func (sel *SelectionSet) FieldsWithName(name string) []*SelectedField {
-	if sel == nil {
+func (set *SelectionSet) FieldsWithName(name string) []*SelectedField {
+	if set == nil {
 		return nil
 	}
 	var fields []*SelectedField
-	for _, f := range sel.fields {
+	for _, f := range set.fields {
 		if f.name == name {
 			fields = append(fields, f)
 		}

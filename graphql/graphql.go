@@ -126,11 +126,17 @@ func (srv *Server) executeValidated(ctx context.Context, req Request) Response {
 		}
 		return resp
 	}
+	scope := &selectionSetScope{
+		source:    req.ValidatedQuery.source,
+		doc:       req.ValidatedQuery.doc,
+		types:     srv.schema.types,
+		variables: varValues,
+	}
 	var data Value
 	switch op.Type {
 	case gqlang.Query:
 		var sel *SelectionSet
-		sel, errs = newSelectionSet(req.ValidatedQuery.source, varValues, srv.schema.query.obj, op.SelectionSet)
+		sel, errs = newSelectionSet(scope, srv.schema.query, op.SelectionSet)
 		if len(errs) == 0 {
 			data, errs = srv.schema.valueFromGo(ctx, varValues, srv.query, srv.schema.query, sel)
 		}
@@ -148,7 +154,7 @@ func (srv *Server) executeValidated(ctx context.Context, req Request) Response {
 			}
 		}
 		var sel *SelectionSet
-		sel, errs = newSelectionSet(req.ValidatedQuery.source, varValues, srv.schema.mutation.obj, op.SelectionSet)
+		sel, errs = newSelectionSet(scope, srv.schema.mutation, op.SelectionSet)
 		if len(errs) == 0 {
 			data, errs = srv.schema.valueFromGo(ctx, varValues, srv.mutation, srv.schema.mutation, sel)
 		}

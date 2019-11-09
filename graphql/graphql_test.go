@@ -1013,6 +1013,37 @@ func TestExecute(t *testing.T) {
 				{key: "inputObjectArgument", value: valueExpectations{scalar: "xyzzy"}},
 			},
 		},
+		{
+			name: "Fragment/Inline",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{
+					MyInt32:  NullInt{Int: 42, Valid: true},
+					MyString: NullString{S: "Hello", Valid: true},
+				}
+			},
+			request: Request{Query: `{ myInt32, ... on Query { myString } }`},
+			want: []fieldExpectations{
+				{key: "myInt32", value: valueExpectations{scalar: "42"}},
+				{key: "myString", value: valueExpectations{scalar: "Hello"}},
+			},
+		},
+		{
+			name: "Fragment/Named",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{
+					MyInt32:  NullInt{Int: 42, Valid: true},
+					MyString: NullString{S: "Hello", Valid: true},
+				}
+			},
+			request: Request{Query: `
+				{ myInt32, ...queryString }
+				fragment queryString on Query { myString }
+			`},
+			want: []fieldExpectations{
+				{key: "myInt32", value: valueExpectations{scalar: "42"}},
+				{key: "myString", value: valueExpectations{scalar: "Hello"}},
+			},
+		},
 	}
 
 	ctx := context.Background()

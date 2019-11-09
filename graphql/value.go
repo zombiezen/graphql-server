@@ -126,7 +126,7 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 // coerceArgumentValues uses the algorithm in
 // https://graphql.github.io/graphql-spec/June2018/#sec-Coercing-Field-Arguments
 // but assumes the arguments were validated.
-func coerceArgumentValues(source string, variables map[string]Value, fieldInfo *objectTypeField, args *gqlang.Arguments) (map[string]Value, []error) {
+func coerceArgumentValues(s *selectionSetScope, fieldInfo *objectTypeField, args *gqlang.Arguments) (map[string]Value, []error) {
 	argValues := make(map[string]Value)
 	var errs []error
 	for _, defn := range fieldInfo.args {
@@ -136,13 +136,13 @@ func coerceArgumentValues(source string, variables map[string]Value, fieldInfo *
 			continue
 		}
 		if arg.Value.VariableRef != nil {
-			if _, hasValue := variables[arg.Value.VariableRef.Name.Value]; !hasValue {
+			if _, hasValue := s.variables[arg.Value.VariableRef.Name.Value]; !hasValue {
 				argValues[defn.name] = defn.defaultValue
 				continue
 			}
 		}
 		var argErrs []error
-		argValues[defn.name], argErrs = coerceInputValue(source, variables, defn.Type(), arg.Value)
+		argValues[defn.name], argErrs = coerceInputValue(s, defn.Type(), arg.Value)
 		for _, err := range argErrs {
 			errs = append(errs, xerrors.Errorf("argument %s: %w", defn.name, err))
 		}
@@ -153,7 +153,7 @@ func coerceArgumentValues(source string, variables map[string]Value, fieldInfo *
 // coerceConstantInputValue converts a input literal without variables into a
 // value. It assumes that the input literal has been validated.
 func coerceConstantInputValue(typ *gqlType, inputValue *gqlang.InputValue) Value {
-	v, errs := coerceInputValue("", nil, typ, inputValue)
+	v, errs := coerceInputValue(nil, typ, inputValue)
 	if len(errs) > 0 {
 		// This condition should be impossible.
 		panic(errs[0])
@@ -163,18 +163,18 @@ func coerceConstantInputValue(typ *gqlType, inputValue *gqlang.InputValue) Value
 
 // coerceInputValue converts an input expression possibly containing variables
 // into a value. It assumes that the input expression has been validated.
-func coerceInputValue(source string, variables map[string]Value, typ *gqlType, inputValue *gqlang.InputValue) (Value, []error) {
+func coerceInputValue(s *selectionSetScope, typ *gqlType, inputValue *gqlang.InputValue) (Value, []error) {
 	switch {
 	case inputValue.Null != nil:
 		return Value{typ: typ}, nil
 	case inputValue.VariableRef != nil:
 		name := inputValue.VariableRef.Name.Value
-		v := variables[name]
+		v := s.variables[name]
 		if v.IsNull() && !typ.isNullable() {
 			return Value{typ: typ}, []error{&ResponseError{
 				Message: fmt.Sprintf("cannot use null variable $%s as %v", name, typ),
 				Locations: []Location{
-					astPositionToLocation(inputValue.VariableRef.Dollar.ToPosition(source)),
+					astPositionToLocation(inputValue.VariableRef.Dollar.ToPosition(s.source)),
 				},
 			}}
 		}
@@ -192,7 +192,7 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 			// Attempt to coerce as single-element list.
 			// Yes, I'm just as surprised as you are at this behavior,
 			// see https://graphql.github.io/graphql-spec/June2018/#sec-Type-System.List
-			value, errs := coerceInputValue(source, variables, typ.listElem, inputValue)
+			value, errs := coerceInputValue(s, typ.listElem, inputValue)
 			if len(errs) > 0 {
 				return Value{typ: typ}, errs
 			}
@@ -204,7 +204,7 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 		val := make([]Value, 0, len(inputValue.List.Values))
 		var errs []error
 		for i, elem := range inputValue.List.Values {
-			elemValue, elemErrs := coerceInputValue(source, variables, typ.listElem, elem)
+			elemValue, elemErrs := coerceInputValue(s, typ.listElem, elem)
 			val = append(val, elemValue)
 			for _, err := range elemErrs {
 				errs = append(errs, xerrors.Errorf("list[%d]: %w", i, err))
@@ -218,7 +218,7 @@ func coerceInputValue(source string, variables map[string]Value, typ *gqlType, i
 			fieldName := field.Name.Value
 			fieldType := typ.input.fields.byName(fieldName).Type()
 			var fieldErrs []error
-			val[fieldName], fieldErrs = coerceInputValue(source, variables, fieldType, field.Value)
+			val[fieldName], fieldErrs = coerceInputValue(s, fieldType, field.Value)
 			for _, err := range fieldErrs {
 				errs = append(errs, xerrors.Errorf("input field %s: %w", fieldName, err))
 			}
