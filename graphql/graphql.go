@@ -103,7 +103,7 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 }
 
 func (srv *Server) executeValidated(ctx context.Context, req Request) Response {
-	op := req.ValidatedQuery.find(req.OperationName)
+	op := req.ValidatedQuery.doc.FindOperation(req.OperationName)
 	if op == nil {
 		if req.OperationName == "" {
 			return Response{
@@ -184,24 +184,11 @@ type ValidatedQuery struct {
 // such operation exists. If the operation name is empty and there is only one
 // operation in the query, then TypeOf returns the type of that operation.
 func (query *ValidatedQuery) TypeOf(operationName string) OperationType {
-	op := query.find(operationName)
+	op := query.doc.FindOperation(operationName)
 	if op == nil {
 		return 0
 	}
 	return operationTypeFromAST(op.Type)
-}
-
-// find returns the operation with the name or nil if not found.
-func (query *ValidatedQuery) find(operationName string) *gqlang.Operation {
-	for _, defn := range query.doc.Definitions {
-		if defn.Operation == nil {
-			continue
-		}
-		if operationName == "" || (defn.Operation.Name != nil && operationName == defn.Operation.Name.Value) {
-			return defn.Operation
-		}
-	}
-	return nil
 }
 
 // OperationType represents the keywords used to declare operations.

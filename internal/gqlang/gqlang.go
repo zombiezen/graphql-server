@@ -29,6 +29,30 @@ type Document struct {
 	Definitions []*Definition
 }
 
+// FindOperation returns the operation with the name or nil if not found.
+// If the name is the empty string, it returns the first operation.
+func (doc *Document) FindOperation(name string) *Operation {
+	for _, defn := range doc.Definitions {
+		if defn.Operation == nil {
+			continue
+		}
+		if name == "" || (defn.Operation.Name != nil && name == defn.Operation.Name.Value) {
+			return defn.Operation
+		}
+	}
+	return nil
+}
+
+// FindFragment returns the fragment with the name or nil if not found.
+func (doc *Document) FindFragment(name string) *FragmentDefinition {
+	for _, defn := range doc.Definitions {
+		if defn.Fragment != nil && name == defn.Fragment.Name.Value {
+			return defn.Fragment
+		}
+	}
+	return nil
+}
+
 // Definition is a top-level GraphQL construct like an operation, a fragment, or
 // a type. Only one of its fields will be set.
 // https://graphql.github.io/graphql-spec/June2018/#sec-Language.Document
