@@ -53,6 +53,17 @@ func TestValidate(t *testing.T) {
 
 		type Human {
 			name: String!
+			# TODO(someday): Type should be [Pet!]
+			pets: [Dog!]
+		}
+
+		enum CatCommand { JUMP }
+
+		type Cat {
+			name: String!
+			nickname: String
+			doesKnowCommand(catCommand: CatCommand!): Boolean!
+			meowVolume: Int
 		}
 
 		type Mutation {
@@ -462,6 +473,73 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
+			name: "FieldSelection/Merging/AcrossFragments/DistinctFields",
+			request: `
+				{
+					dog {
+						... {
+							name
+						}
+						... {
+							nickname
+						}
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			name: "FieldSelection/Merging/AcrossFragments/ConflictingArgsOnValues",
+			request: `
+				{
+					dog {
+						... {
+							doesKnowCommand(dogCommand: SIT)
+						}
+						... {
+							doesKnowCommand(dogCommand: HEEL)
+						}
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{5, 57},
+						{8, 57},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
+			name: "FieldSelection/Merging/AcrossFragments/ConflictingArgsOnValuesWithNamed",
+			request: `
+				{
+					dog {
+						doesKnowCommand(dogCommand: SIT)
+						...heel
+					}
+				}
+
+				fragment heel on Dog {
+					doesKnowCommand(dogCommand: HEEL)
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 49},
+						{10, 41},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "doesKnowCommand"},
+					},
+				},
+			},
+		},
+		{
 			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-e23c5
 			name: "FieldSelection/Leaf/ScalarValid",
 			request: `
@@ -678,6 +756,304 @@ func TestValidate(t *testing.T) {
 					Path: []PathSegment{
 						{Field: "arguments"},
 						{Field: "optionalNonNullBooleanArgField"},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-3703b
+			name: "Fragments/NameUniqueness/Valid",
+			request: `
+				{
+					dog {
+						...fragmentOne
+						...fragmentTwo
+					}
+				}
+
+				fragment fragmentOne on Dog {
+					name
+				}
+
+				fragment fragmentTwo on Dog {
+					owner {
+						name
+					}
+				}
+			`,
+			wantErrors: nil,
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-2c3e3
+			name: "Fragments/NameUniqueness/Invalid",
+			request: `
+				{
+					dog {
+						...fragmentOne
+					}
+				}
+
+				fragment fragmentOne on Dog {
+					name
+				}
+
+				fragment fragmentOne on Dog {
+					owner {
+						name
+					}
+				}
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{8, 42},
+						{12, 42},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-1b2da
+			name: "Fragments/SpreadTypeExistence/Valid",
+			request: `
+				fragment correctType on Dog {
+					name
+				}
+
+				fragment inlineFragment on Dog {
+					... on Dog {
+						name
+					}
+				}
+
+				# Use these in query to avoid errors.
+				{ dog { ...correctType, ...inlineFragment } }
+			`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-463f6
+			name: "Fragments/SpreadTypeExistence/Invalid",
+			request: `
+				fragment notOnExistingType on NotInSchema {
+					name
+				}
+
+				fragment inlineNotExistingType on Dog {
+					... on NotInSchema {
+						name
+					}
+				}
+
+				# Use these in query to avoid errors.
+				{ dog { ...notOnExistingType, ...inlineNotExistingType } }
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 63},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+					},
+				},
+				{
+					Locations: []Location{
+						{7, 48},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-3c8d4
+			name: "Fragments/CompositeTypes/Object",
+			request: `
+				fragment fragOnObject on Dog {
+					name
+				}
+
+				# Use these in query to avoid errors.
+				{ dog { ...fragOnObject } }
+			`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-4d5e5
+			name: "Fragments/CompositeTypes/Invalid",
+			request: `
+				fragment fragOnScalar on Int {
+					name
+				}
+
+				fragment inlineFragOnScalar on Dog {
+					... on Boolean {
+						somethingElse
+					}
+				}
+
+				# Use these in query to avoid errors.
+				{ dog { ...fragOnScalar, ...inlineFragOnScalar } }
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 58},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+					},
+				},
+				{
+					Locations: []Location{
+						{7, 48},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-9e1e3
+			name: "Fragments/Unused",
+			request: `
+				fragment nameFragment on Dog { # unused
+					name
+				}
+
+				{
+					dog {
+						name
+					}
+				}
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{2, 33},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-28421
+			name: "FragmentSpreads/TargetUndefined",
+			request: `
+				{
+					dog {
+						...undefinedFragment
+					}
+				}
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 52},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-9ceb4
+			name: "FragmentSpreads/Cycles/InfiniteSpread",
+			request: `
+				{
+					dog {
+						...nameFragment
+					}
+				}
+
+				fragment nameFragment on Dog {
+					name
+					...barkVolumeFragment
+				}
+
+				fragment barkVolumeFragment on Dog {
+					barkVolume
+					...nameFragment
+				}
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{15, 44}, // The final ...nameFragment
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-6bbad
+			name: "FragmentSpreads/Cycles/InfiniteRecursion",
+			request: `
+				{
+					dog {
+						...dogFragment
+					}
+				}
+
+				fragment dogFragment on Dog {
+					name
+					owner {
+						...ownerFragment
+					}
+				}
+
+				fragment ownerFragment on Human {
+					name
+					pets {
+						...dogFragment
+					}
+				}
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{18, 52}, // The final ...dogFragment
+					},
+				},
+			},
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-0fc38
+			name: "FragmentSpreads/Types/Object/Valid",
+			request: `
+				fragment dogFragment on Dog {
+					... on Dog {
+						barkVolume
+					}
+				}
+
+				# Use fragment in query to avoid errors.
+				{ dog { ...dogFragment } }
+			`,
+			wantErrors: nil,
+		},
+		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-4d411
+			name: "FragmentSpreads/Types/Object/Invalid",
+			request: `
+				fragment catInDogFragmentInvalid on Dog {
+					... on Cat {
+						meowVolume
+					}
+				}
+
+				# Use fragment in query to avoid errors.
+				{ dog { ...catInDogFragmentInvalid } }
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 48},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
 					},
 				},
 			},

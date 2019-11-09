@@ -349,6 +349,8 @@ func (typ *gqlType) isOutputType() bool {
 	return typ.isScalar() || typ.isEnum() || typ.isObject()
 }
 
+// selectionSetType returns the type used for selection sets or nil if the type
+// is not a composite type. This is largely to unwrap lists.
 func (typ *gqlType) selectionSetType() *gqlType {
 	for typ.isList() {
 		typ = typ.listElem
@@ -358,6 +360,14 @@ func (typ *gqlType) selectionSetType() *gqlType {
 		return nil
 	}
 	return typ
+}
+
+// possibleTypes returns the set of types that an object of this type could be
+// at runtime. All types are normalized to nullable types.
+// See https://graphql.github.io/graphql-spec/June2018/#GetPossibleTypes%28%29
+func (typ *gqlType) possibleTypes() map[*gqlType]struct{} {
+	// TODO(someday): This only applies to objects. Add more for interface or union.
+	return map[*gqlType]struct{}{typ.toNullable(): {}}
 }
 
 // areTypesCompatible reports if a value variableType can be passed to a usage

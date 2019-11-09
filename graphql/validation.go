@@ -27,26 +27,59 @@ import (
 // validateRequest validates a parsed GraphQL request according to the procedure
 // defined in https://graphql.github.io/graphql-spec/June2018/#sec-Validation.
 func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []error {
-	errs := schema.validateStructure(source, doc)
+	fragments, errs := schema.validateStructure(source, doc)
 	if len(errs) > 0 {
 		return errs
+	}
+	docScope := &validationScope{
+		source:    source,
+		types:     schema.types,
+		fragments: fragments,
+	}
+	// Ensure there are no cycles before validating operations, since otherwise
+	// they could have unbounded recursion.
+	for _, defn := range doc.Definitions {
+		if defn.Fragment == nil {
+			continue
+		}
+		name := defn.Fragment.Name.Value
+		if err := detectFragmentCycles(docScope, map[string]struct{}{name: {}}, defn.Fragment.SelectionSet); err != nil {
+			return []error{err}
+		}
 	}
 	for _, defn := range doc.Definitions {
 		if defn.Operation == nil {
 			continue
 		}
-		errs = append(errs, schema.validateOperation(source, defn.Operation)...)
+		errs = append(errs, schema.validateOperation(source, fragments, defn.Operation)...)
 	}
+	errs = append(errs, validateFragmentUsage(docScope, doc.Definitions)...)
 	return errs
 }
 
 // validateStructure validates the well-formedness of the top-level definitions.
-func (schema *Schema) validateStructure(source string, doc *gqlang.Document) []error {
+func (schema *Schema) validateStructure(source string, doc *gqlang.Document) (map[string]*fragmentValidationState, []error) {
 	var errs []error
 	var anonPosList []gqlang.Pos
 	operationsByName := make(map[string][]gqlang.Pos)
+	fragmentsByName := make(map[string][]gqlang.Pos)
+	fragments := make(map[string]*fragmentValidationState)
 	for _, defn := range doc.Definitions {
-		if defn.Operation == nil {
+		switch {
+		case defn.Operation != nil:
+			if defn.Operation.Name == nil {
+				anonPosList = append(anonPosList, defn.Operation.Start)
+				continue
+			}
+			name := defn.Operation.Name.Value
+			operationsByName[name] = append(operationsByName[name], defn.Operation.Name.Start)
+		case defn.Fragment != nil:
+			name := defn.Fragment.Name.Value
+			fragmentsByName[name] = append(fragmentsByName[name], defn.Fragment.Name.Start)
+			fragments[name] = &fragmentValidationState{
+				FragmentDefinition: defn.Fragment,
+			}
+		default:
 			// https://graphql.github.io/graphql-spec/June2018/#sec-Executable-Definitions
 			errs = append(errs, &ResponseError{
 				Message: "not an operation nor a fragment",
@@ -56,12 +89,6 @@ func (schema *Schema) validateStructure(source string, doc *gqlang.Document) []e
 			})
 			continue
 		}
-		if defn.Operation.Name == nil {
-			anonPosList = append(anonPosList, defn.Operation.Start)
-			continue
-		}
-		name := defn.Operation.Name.Value
-		operationsByName[name] = append(operationsByName[name], defn.Operation.Name.Start)
 	}
 	if len(anonPosList) > 1 {
 		// https://graphql.github.io/graphql-spec/June2018/#sec-Lone-Anonymous-Operation
@@ -94,10 +121,65 @@ func (schema *Schema) validateStructure(source string, doc *gqlang.Document) []e
 			})
 		}
 	}
-	return errs
+	// https://graphql.github.io/graphql-spec/draft/#sec-Fragment-Name-Uniqueness
+	for _, defn := range doc.Definitions {
+		if defn.Fragment == nil {
+			continue
+		}
+		name := defn.Fragment.Name.Value
+		posList := fragmentsByName[name]
+		if defn.Fragment.Name.Start != posList[0] {
+			continue
+		}
+		if len(posList) > 1 {
+			errs = append(errs, &ResponseError{
+				Message:   fmt.Sprintf("multiple fragments with name %q", name),
+				Locations: posListToLocationList(source, posList),
+			})
+		}
+	}
+	return fragments, errs
 }
 
-func (schema *Schema) validateOperation(source string, op *gqlang.Operation) []error {
+func detectFragmentCycles(v *validationScope, visited map[string]struct{}, set *gqlang.SelectionSet) error {
+	if set == nil {
+		return nil
+	}
+	for _, sel := range set.Sel {
+		switch {
+		case sel.Field != nil:
+			if err := detectFragmentCycles(v, visited, sel.Field.SelectionSet); err != nil {
+				return err
+			}
+		case sel.InlineFragment != nil:
+			if err := detectFragmentCycles(v, visited, sel.InlineFragment.SelectionSet); err != nil {
+				return err
+			}
+		case sel.FragmentSpread != nil:
+			name := sel.FragmentSpread.Name.Value
+			if _, seen := visited[name]; seen {
+				return &ResponseError{
+					Message: fmt.Sprintf("fragment %s is self-referential", name),
+					Locations: []Location{
+						astPositionToLocation(sel.FragmentSpread.Name.Start.ToPosition(v.source)),
+					},
+				}
+			}
+			frag := v.fragments[name]
+			if frag == nil {
+				continue
+			}
+			visited[name] = struct{}{}
+			if err := detectFragmentCycles(v, visited, frag.SelectionSet); err != nil {
+				return err
+			}
+			delete(visited, name)
+		}
+	}
+	return nil
+}
+
+func (schema *Schema) validateOperation(source string, fragments map[string]*fragmentValidationState, op *gqlang.Operation) []error {
 	opType := schema.operationType(op.Type)
 	if opType == nil {
 		return []error{&ResponseError{
@@ -118,7 +200,9 @@ func (schema *Schema) validateOperation(source string, op *gqlang.Operation) []e
 	}
 	v := &validationScope{
 		source:    source,
+		types:     schema.types,
 		variables: variables,
+		fragments: fragments,
 	}
 	var errs []error
 	selErrs := validateSelectionSet(v, op.Type == gqlang.Query, opType, op.SelectionSet)
@@ -144,7 +228,9 @@ func (schema *Schema) validateOperation(source string, op *gqlang.Operation) []e
 // during validation.
 type validationScope struct {
 	source    string
+	types     map[string]*gqlType
 	variables map[string]*validatedVariable
+	fragments map[string]*fragmentValidationState
 }
 
 type validatedVariable struct {
@@ -155,6 +241,12 @@ type validatedVariable struct {
 
 func (vv *validatedVariable) typ() *gqlType {
 	return vv.defaultValue.typ
+}
+
+// fragmentValidationState records whether a fragment is used.
+type fragmentValidationState struct {
+	*gqlang.FragmentDefinition
+	used bool
 }
 
 // validateVariables validates an operation's variables and resolves their types.
@@ -226,7 +318,8 @@ func validateVariables(source string, typeMap map[string]*gqlType, defns *gqlang
 	return result, nil
 }
 
-// validateVariableUsage verifies that all variables defined in the operation are used. See https://graphql.github.io/graphql-spec/June2018/#sec-All-Variables-Used
+// validateVariableUsage verifies that all variables defined in the operation are used.
+// See https://graphql.github.io/graphql-spec/June2018/#sec-All-Variables-Used
 func validateVariableUsage(v *validationScope, defns *gqlang.VariableDefinitions) []error {
 	if defns == nil {
 		return nil
@@ -246,82 +339,184 @@ func validateVariableUsage(v *validationScope, defns *gqlang.VariableDefinitions
 	return errs
 }
 
-func validateSelectionSet(v *validationScope, isRootQuery bool, typ *gqlType, set *gqlang.SelectionSet) []error {
+// validateFragmentUsage verifies that all fragments defined in the document are used.
+// See https://graphql.github.io/graphql-spec/draft/#sec-Fragments-Must-Be-Used
+func validateFragmentUsage(v *validationScope, defns []*gqlang.Definition) []error {
 	var errs []error
-	for _, selection := range set.Sel {
-		fieldInfo := typ.obj.field(selection.Field.Name.Value)
-		if selection.Field.Name.Value == typeNameFieldName {
-			fieldInfo = typeNameField()
-		} else if isRootQuery {
-			// Top-level queries have a few extra fields for introspection:
-			// https://graphql.github.io/graphql-spec/June2018/#sec-Schema-Introspection
-			switch selection.Field.Name.Value {
-			case typeByNameFieldName:
-				fieldInfo = typeByNameField()
-			case schemaFieldName:
-				fieldInfo = schemaField()
-			}
-		}
-		loc := astPositionToLocation(selection.Field.Name.Start.ToPosition(v.source))
-		if fieldInfo == nil {
-			// Field not found.
-			// https://graphql.github.io/graphql-spec/June2018/#sec-Field-Selections-on-Objects-Interfaces-and-Unions-Types
-			errs = append(errs, &ResponseError{
-				Message:   fmt.Sprintf("field %q not found on type %v", selection.Field.Name.Value, typ),
-				Locations: []Location{loc},
-				Path: []PathSegment{
-					{Field: selection.Field.Key().Value},
-				},
-			})
+	for _, defn := range defns {
+		if defn.Fragment == nil {
 			continue
 		}
-		// https://graphql.github.io/graphql-spec/June2018/#sec-Validation.Arguments
-		argsErrs := validateArguments(v, fieldInfo.args, selection.Field.Arguments)
-		if len(argsErrs) > 0 {
-			argsPos := selection.Field.Name.End()
-			if selection.Field.Arguments != nil {
-				argsPos = selection.Field.Arguments.RParen
-			}
-			argsLoc := astPositionToLocation(argsPos.ToPosition(v.source))
-			for _, err := range argsErrs {
-				errs = append(errs, wrapFieldError(selection.Field.Key().Value, argsLoc, err))
-			}
-		}
-
-		// https://graphql.github.io/graphql-spec/June2018/#sec-Leaf-Field-Selections
-		if subsetType := fieldInfo.typ.selectionSetType(); subsetType != nil {
-			if selection.Field.SelectionSet == nil {
-				errs = append(errs, &ResponseError{
-					Message: fmt.Sprintf("object field %q missing selection set", selection.Field.Name.Value),
-					Locations: []Location{
-						astPositionToLocation(selection.Field.End().ToPosition(v.source)),
-					},
-					Path: []PathSegment{
-						{Field: selection.Field.Key().Value},
-					},
-				})
-				continue
-			}
-			subErrs := validateSelectionSet(v, false, subsetType, selection.Field.SelectionSet)
-			for _, err := range subErrs {
-				errs = append(errs, wrapFieldError(selection.Field.Key().Value, loc, err))
-			}
-		} else if selection.Field.SelectionSet != nil {
+		name := defn.Fragment.Name.Value
+		if !v.fragments[name].used {
 			errs = append(errs, &ResponseError{
-				Message: fmt.Sprintf("scalar field %q must not have selection set", selection.Field.Name.Value),
+				Message: fmt.Sprintf("unused fragment %s", name),
 				Locations: []Location{
-					astPositionToLocation(selection.Field.SelectionSet.LBrace.ToPosition(v.source)),
-				},
-				Path: []PathSegment{
-					{Field: selection.Field.Key().Value},
+					astPositionToLocation(defn.Fragment.Keyword.ToPosition(v.source)),
 				},
 			})
 		}
 	}
+	return errs
+}
+
+func validateSelectionSet(v *validationScope, isRootQuery bool, typ *gqlType, set *gqlang.SelectionSet) []error {
+	var errs []error
+	for _, selection := range set.Sel {
+		switch {
+		case selection.Field != nil:
+			errs = append(errs, validateField(v, isRootQuery, typ, selection.Field)...)
+		case selection.FragmentSpread != nil:
+			name := selection.FragmentSpread.Name
+			frag := v.fragments[name.Value]
+			if frag == nil {
+				errs = append(errs, &ResponseError{
+					Message: fmt.Sprintf("undefined fragment %s", name.Value),
+					Locations: []Location{
+						astPositionToLocation(name.Start.ToPosition(v.source)),
+					},
+				})
+				continue
+			}
+			frag.used = true
+			condTyp, condErr := validateFragmentTypeCondition(v, typ, frag.Type)
+			if condErr != nil {
+				errs = append(errs, xerrors.Errorf("fragment %s: %w", name.Value, condErr))
+				continue
+			}
+			selErrs := validateSelectionSet(v, isRootQuery, condTyp, frag.SelectionSet)
+			for _, err := range selErrs {
+				errs = append(errs, xerrors.Errorf("fragment %s: %w", name.Value, err))
+			}
+		case selection.InlineFragment != nil:
+			cond := selection.InlineFragment.Type
+			condTyp, condErr := validateFragmentTypeCondition(v, typ, cond)
+			if condErr != nil {
+				errs = append(errs, condErr)
+				continue
+			}
+			errs = append(errs, validateSelectionSet(v, isRootQuery, condTyp, selection.InlineFragment.SelectionSet)...)
+		default:
+			panic("unknown selection type")
+		}
+	}
 	var groups fieldGroups
-	groups.addSet(typ, set)
+	groups.addSet(v, typ, set)
 	for _, group := range groups {
-		errs = append(errs, checkFieldMergability(v.source, group)...)
+		errs = append(errs, checkFieldMergability(v, group)...)
+	}
+	return errs
+}
+
+func validateFragmentTypeCondition(v *validationScope, parent *gqlType, cond *gqlang.TypeCondition) (*gqlType, error) {
+	if cond == nil {
+		return parent, nil
+	}
+	typName := cond.Name.Value
+	typ := v.types[typName]
+	if typ == nil {
+		return nil, &ResponseError{
+			Message: fmt.Sprintf("unknown type %s", typName),
+			Locations: []Location{
+				astPositionToLocation(cond.Name.Start.ToPosition(v.source)),
+			},
+		}
+	}
+	if typ.selectionSetType() == nil {
+		return nil, &ResponseError{
+			Message: fmt.Sprintf("type %s must be a composite", typName),
+			Locations: []Location{
+				astPositionToLocation(cond.Name.Start.ToPosition(v.source)),
+			},
+		}
+	}
+	parentPossibles := parent.possibleTypes()
+	possible := false
+	for p := range typ.possibleTypes() {
+		if _, found := parentPossibles[p]; found {
+			possible = true
+			break
+		}
+	}
+	if !possible {
+		return nil, &ResponseError{
+			Message: fmt.Sprintf("objects of type %v can never be a %s", parent.toNullable(), typName),
+			Locations: []Location{
+				astPositionToLocation(cond.Name.Start.ToPosition(v.source)),
+			},
+		}
+	}
+	return typ, nil
+}
+
+func validateField(v *validationScope, isRootQuery bool, typ *gqlType, field *gqlang.Field) []error {
+	fieldInfo := typ.obj.field(field.Name.Value)
+	if field.Name.Value == typeNameFieldName {
+		fieldInfo = typeNameField()
+	} else if isRootQuery {
+		// Top-level queries have a few extra fields for introspection:
+		// https://graphql.github.io/graphql-spec/June2018/#sec-Schema-Introspection
+		switch field.Name.Value {
+		case typeByNameFieldName:
+			fieldInfo = typeByNameField()
+		case schemaFieldName:
+			fieldInfo = schemaField()
+		}
+	}
+	loc := astPositionToLocation(field.Name.Start.ToPosition(v.source))
+	if fieldInfo == nil {
+		// Field not found.
+		// https://graphql.github.io/graphql-spec/June2018/#sec-Field-Selections-on-Objects-Interfaces-and-Unions-Types
+		return []error{&ResponseError{
+			Message:   fmt.Sprintf("field %q not found on type %v", field.Name.Value, typ),
+			Locations: []Location{loc},
+			Path: []PathSegment{
+				{Field: field.Key().Value},
+			},
+		}}
+	}
+	// https://graphql.github.io/graphql-spec/June2018/#sec-Validation.Arguments
+	var errs []error
+	argsErrs := validateArguments(v, fieldInfo.args, field.Arguments)
+	if len(argsErrs) > 0 {
+		argsPos := field.Name.End()
+		if field.Arguments != nil {
+			argsPos = field.Arguments.RParen
+		}
+		argsLoc := astPositionToLocation(argsPos.ToPosition(v.source))
+		for _, err := range argsErrs {
+			errs = append(errs, wrapFieldError(field.Key().Value, argsLoc, err))
+		}
+	}
+
+	// https://graphql.github.io/graphql-spec/June2018/#sec-Leaf-Field-Selections
+	if subsetType := fieldInfo.typ.selectionSetType(); subsetType != nil {
+		if field.SelectionSet == nil {
+			errs = append(errs, &ResponseError{
+				Message: fmt.Sprintf("object field %q missing selection set", field.Name.Value),
+				Locations: []Location{
+					astPositionToLocation(field.End().ToPosition(v.source)),
+				},
+				Path: []PathSegment{
+					{Field: field.Key().Value},
+				},
+			})
+			return errs
+		}
+		subErrs := validateSelectionSet(v, false, subsetType, field.SelectionSet)
+		for _, err := range subErrs {
+			errs = append(errs, wrapFieldError(field.Key().Value, loc, err))
+		}
+	} else if field.SelectionSet != nil {
+		errs = append(errs, &ResponseError{
+			Message: fmt.Sprintf("scalar field %q must not have selection set", field.Name.Value),
+			Locations: []Location{
+				astPositionToLocation(field.SelectionSet.LBrace.ToPosition(v.source)),
+			},
+			Path: []PathSegment{
+				{Field: field.Key().Value},
+			},
+		})
 	}
 	return errs
 }
@@ -329,18 +524,18 @@ func validateSelectionSet(v *validationScope, isRootQuery bool, typ *gqlType, se
 // checkFieldMergability ensures that the fields with the same key can be
 // merged, returning errors if they can't.
 // See https://graphql.github.io/graphql-spec/June2018/#FieldsInSetCanMerge%28%29
-func checkFieldMergability(source string, fields []groupedField) []error {
+func checkFieldMergability(v *validationScope, fields []groupedField) []error {
 	key := fields[0].Key().Value
 	locs := make([]Location, 0, len(fields))
 	for _, f := range fields {
-		locs = append(locs, astPositionToLocation(f.Start().ToPosition(source)))
+		locs = append(locs, astPositionToLocation(f.Start().ToPosition(v.source)))
 	}
 
 	// TODO(someday): Is there a way to avoid quadratic behavior?
 	var errs []error
 	for i, fieldA := range fields {
 		for _, fieldB := range fields[i+1:] {
-			if !sameResponseShape(fieldA, fieldB) {
+			if !sameResponseShape(v, fieldA, fieldB) {
 				errs = append(errs, &fieldError{
 					key:  key,
 					locs: locs,
@@ -368,10 +563,10 @@ func checkFieldMergability(source string, fields []groupedField) []error {
 				continue
 			}
 			var subgroups fieldGroups
-			subgroups.addSet(fieldA.typ(), fieldA.SelectionSet)
-			subgroups.addSet(fieldB.typ(), fieldB.SelectionSet)
+			subgroups.addSet(v, fieldA.typ(), fieldA.SelectionSet)
+			subgroups.addSet(v, fieldB.typ(), fieldB.SelectionSet)
 			for _, group := range subgroups {
-				for _, err := range checkFieldMergability(source, group) {
+				for _, err := range checkFieldMergability(v, group) {
 					// checkFieldMergability will always attach locations.
 					errs = append(errs, &fieldError{
 						key: key,
@@ -386,7 +581,7 @@ func checkFieldMergability(source string, fields []groupedField) []error {
 
 // sameResponseShape reports whether two fields have the same structure.
 // See https://graphql.github.io/graphql-spec/June2018/#SameResponseShape%28%29
-func sameResponseShape(fieldA, fieldB groupedField) bool {
+func sameResponseShape(v *validationScope, fieldA, fieldB groupedField) bool {
 	typeA, typeB := fieldA.typ(), fieldB.typ()
 	for {
 		if !typeA.isNullable() || !typeB.isNullable() {
@@ -412,12 +607,12 @@ func sameResponseShape(fieldA, fieldB groupedField) bool {
 		return false
 	}
 	var groups fieldGroups
-	groups.addSet(typeA, fieldA.SelectionSet)
-	groups.addSet(typeB, fieldB.SelectionSet)
+	groups.addSet(v, typeA, fieldA.SelectionSet)
+	groups.addSet(v, typeB, fieldB.SelectionSet)
 	for _, group := range groups {
 		subA := group[0]
 		for _, subB := range group[1:] {
-			if !sameResponseShape(subA, subB) {
+			if !sameResponseShape(v, subA, subB) {
 				return false
 			}
 		}
@@ -435,17 +630,42 @@ type groupedField struct {
 	parentType *gqlType
 }
 
-func (groups *fieldGroups) addSet(typ *gqlType, set *gqlang.SelectionSet) {
+func (groups *fieldGroups) addSet(v *validationScope, typ *gqlType, set *gqlang.SelectionSet) {
 	if set == nil {
 		return
 	}
+	// This method intentionally skips undefined fields or types, because it makes
+	// the merging logic more complex and because such issues will be caught by
+	// other validation checks.
 	for _, sel := range set.Sel {
-		if info := typ.obj.field(sel.Field.Name.Value); info == nil {
-			// An undefined field will be picked up by other validation.
-			// Ignore it for this one, because dealing with nil types is annoying.
-			continue
+		switch {
+		case sel.Field != nil:
+			if info := typ.obj.field(sel.Field.Name.Value); info == nil {
+				continue
+			}
+			groups.add(typ, sel.Field)
+		case sel.FragmentSpread != nil:
+			frag := v.fragments[sel.FragmentSpread.Name.Value]
+			if frag == nil {
+				continue
+			}
+			fragType := v.types[frag.Type.Name.Value]
+			if fragType == nil || fragType.selectionSetType() == nil {
+				continue
+			}
+			groups.addSet(v, fragType, frag.SelectionSet)
+		case sel.InlineFragment != nil:
+			fragType := typ
+			if sel.InlineFragment.Type != nil {
+				fragType = v.types[sel.InlineFragment.Type.Name.Value]
+				if fragType == nil || fragType.selectionSetType() == nil {
+					continue
+				}
+			}
+			groups.addSet(v, fragType, sel.InlineFragment.SelectionSet)
+		default:
+			panic("unknown selection type")
 		}
-		groups.add(typ, sel.Field)
 	}
 }
 
