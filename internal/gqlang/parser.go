@@ -18,6 +18,13 @@ package gqlang
 
 import "golang.org/x/xerrors"
 
+const (
+	maxParseDepth = 50
+	maxSize       = 16 << 10 // 16 KiB
+)
+
+var errTooDeep = xerrors.New("syntax tree too deep")
+
 type parser struct {
 	tokens []token
 	eofPos Pos
@@ -25,6 +32,9 @@ type parser struct {
 
 // Parse parses a GraphQL document into an abstract syntax tree.
 func Parse(input string) (*Document, []error) {
+	if len(input) > maxSize {
+		return nil, []error{xerrors.New("parse: document too large")}
+	}
 	p := &parser{
 		tokens: lex(input),
 		eofPos: Pos(len(input)),
@@ -49,7 +59,7 @@ func Parse(input string) (*Document, []error) {
 	}
 	doc := new(Document)
 	for len(p.tokens) > 0 {
-		defn, defnErrs := p.definition()
+		defn, defnErrs := p.definition(0)
 		for _, err := range defnErrs {
 			fillErrorInput(err, input)
 			errs = append(errs, xerrors.Errorf("parse: %w", err))
@@ -68,18 +78,21 @@ func (p *parser) next() token {
 	return tok
 }
 
-func (p *parser) definition() (*Definition, []error) {
+func (p *parser) definition(depth int) (*Definition, []error) {
 	if len(p.tokens) == 0 {
 		return nil, nil
 	}
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	if (p.tokens[0].kind == name && (p.tokens[0].source == "query" || p.tokens[0].source == "mutation" || p.tokens[0].source == "subscription")) || p.tokens[0].kind == lbrace {
 		// Operations do not permit a description before them.
-		op, errs := p.operation()
+		op, errs := p.operation(depth + 1)
 		return op.asDefinition(), errs
 	}
 	if p.tokens[0].kind == name && p.tokens[0].source == "fragment" {
 		// Fragments do not permit a description before them.
-		frag, errs := p.fragmentDefinition()
+		frag, errs := p.fragmentDefinition(depth + 1)
 		return frag.asDefinition(), errs
 	}
 	var keywordTok token
@@ -108,16 +121,16 @@ func (p *parser) definition() (*Definition, []error) {
 	}
 	switch keywordTok.source {
 	case "scalar":
-		def, errs := p.scalarTypeDefinition()
+		def, errs := p.scalarTypeDefinition(depth + 1)
 		return def.asTypeDefinition().asDefinition(), errs
 	case "type":
-		def, errs := p.objectTypeDefinition()
+		def, errs := p.objectTypeDefinition(depth + 1)
 		return def.asTypeDefinition().asDefinition(), errs
 	case "enum":
-		def, errs := p.enumTypeDefinition()
+		def, errs := p.enumTypeDefinition(depth + 1)
 		return def.asTypeDefinition().asDefinition(), errs
 	case "input":
-		def, errs := p.inputObjectTypeDefinition()
+		def, errs := p.inputObjectTypeDefinition(depth + 1)
 		return def.asTypeDefinition().asDefinition(), errs
 	default:
 		return nil, []error{&posError{
@@ -127,7 +140,10 @@ func (p *parser) definition() (*Definition, []error) {
 	}
 }
 
-func (p *parser) operation() (*Operation, []error) {
+func (p *parser) operation(depth int) (*Operation, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	op := &Operation{
 		Start: p.tokens[0].start,
 	}
@@ -169,7 +185,7 @@ func (p *parser) operation() (*Operation, []error) {
 		}
 		if p.tokens[0].kind == lparen {
 			var varDefErrs []error
-			op.VariableDefinitions, varDefErrs = p.variableDefinitions()
+			op.VariableDefinitions, varDefErrs = p.variableDefinitions(depth + 1)
 			for _, err := range varDefErrs {
 				if op.Name != nil && op.Name.Value != "" {
 					errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name.Value, err))
@@ -188,7 +204,7 @@ func (p *parser) operation() (*Operation, []error) {
 		}}
 	}
 	var selSetErrs []error
-	op.SelectionSet, selSetErrs = p.selectionSet()
+	op.SelectionSet, selSetErrs = p.selectionSet(depth + 1)
 	for _, err := range selSetErrs {
 		if op.Name != nil && op.Name.Value != "" {
 			errs = append(errs, xerrors.Errorf("operation %s: %w", op.Name.Value, err))
@@ -199,18 +215,21 @@ func (p *parser) operation() (*Operation, []error) {
 	return op, errs
 }
 
-func (p *parser) selectionSet() (*SelectionSet, []error) {
+func (p *parser) selectionSet(depth int) (*SelectionSet, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	set := new(SelectionSet)
 	var errs []error
 	set.LBrace, set.RBrace, errs = p.group(lbrace, rbrace, "selection", func() []error {
 		if len(p.tokens) > 0 && p.tokens[0].kind == ellipsis {
-			sel, errs := p.fragment()
+			sel, errs := p.fragment(depth + 1)
 			if sel != nil {
 				set.Sel = append(set.Sel, sel)
 			}
 			return errs
 		}
-		field, errs := p.field()
+		field, errs := p.field(depth + 1)
 		if field != nil {
 			set.Sel = append(set.Sel, field.asSelection())
 		}
@@ -231,7 +250,10 @@ func (p *parser) selectionSet() (*SelectionSet, []error) {
 	return set, errs
 }
 
-func (p *parser) field() (*Field, []error) {
+func (p *parser) field(depth int) (*Field, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	f := new(Field)
 	var err error
 	f.Name, err = p.name()
@@ -253,7 +275,7 @@ func (p *parser) field() (*Field, []error) {
 	var errs []error
 	if p.tokens[0].kind == lparen {
 		var argsErrs []error
-		f.Arguments, argsErrs = p.arguments(false)
+		f.Arguments, argsErrs = p.arguments(depth+1, false)
 		for _, err := range argsErrs {
 			errs = append(errs, xerrors.Errorf("field %s: %w", f.Name.Value, err))
 		}
@@ -263,7 +285,7 @@ func (p *parser) field() (*Field, []error) {
 	}
 	if p.tokens[0].kind == lbrace {
 		var selErrs []error
-		f.SelectionSet, selErrs = p.selectionSet()
+		f.SelectionSet, selErrs = p.selectionSet(depth + 1)
 		for _, err := range selErrs {
 			errs = append(errs, xerrors.Errorf("field %s: %w", f.Name.Value, err))
 		}
@@ -271,11 +293,14 @@ func (p *parser) field() (*Field, []error) {
 	return f, errs
 }
 
-func (p *parser) arguments(isConst bool) (*Arguments, []error) {
+func (p *parser) arguments(depth int, isConst bool) (*Arguments, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	args := new(Arguments)
 	var errs []error
 	args.LParen, args.RParen, errs = p.group(lparen, rparen, "argument", func() []error {
-		arg, errs := p.argument(isConst)
+		arg, errs := p.argument(depth+1, isConst)
 		if arg != nil {
 			args.Args = append(args.Args, arg)
 		}
@@ -296,10 +321,13 @@ func (p *parser) arguments(isConst bool) (*Arguments, []error) {
 	return args, errs
 }
 
-func (p *parser) argument(isConst bool) (*Argument, []error) {
+func (p *parser) argument(depth int, isConst bool) (*Argument, []error) {
 	// Not prepending "argument:" to errors, since arguments() will prepend
 	// "argument #X:".
 
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	argName, err := p.name()
 	if err != nil {
 		return nil, []error{err}
@@ -317,7 +345,7 @@ func (p *parser) argument(isConst bool) (*Argument, []error) {
 		}}
 	}
 	colon := p.next()
-	value, valueErrs := p.value(isConst)
+	value, valueErrs := p.value(depth+1, isConst)
 	return &Argument{
 		Name:  argName,
 		Colon: colon.start,
@@ -325,7 +353,10 @@ func (p *parser) argument(isConst bool) (*Argument, []error) {
 	}, valueErrs
 }
 
-func (p *parser) value(isConst bool) (*InputValue, []error) {
+func (p *parser) value(depth int, isConst bool) (*InputValue, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	if len(p.tokens) == 0 {
 		return nil, []error{&posError{
 			pos: p.eofPos,
@@ -389,10 +420,10 @@ func (p *parser) value(isConst bool) (*InputValue, []error) {
 		}
 		return val, nil
 	case lbracket:
-		lval, errs := p.listValue(isConst)
+		lval, errs := p.listValue(depth+1, isConst)
 		return &InputValue{List: lval}, errs
 	case lbrace:
-		ioval, errs := p.objectValue(isConst)
+		ioval, errs := p.objectValue(depth+1, isConst)
 		return &InputValue{InputObject: ioval}, errs
 	default:
 		return nil, []error{&posError{
@@ -448,11 +479,14 @@ func (p *parser) variable() (*Variable, error) {
 	}, nil
 }
 
-func (p *parser) listValue(isConst bool) (*ListValue, []error) {
+func (p *parser) listValue(depth int, isConst bool) (*ListValue, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	lval := new(ListValue)
 	var errs []error
 	lval.LBracket, lval.RBracket, errs = p.group(lbracket, rbracket, "list value", func() []error {
-		elem, elemErrs := p.value(isConst)
+		elem, elemErrs := p.value(depth+1, isConst)
 		lval.Values = append(lval.Values, elem)
 		return elemErrs
 	})
@@ -462,7 +496,10 @@ func (p *parser) listValue(isConst bool) (*ListValue, []error) {
 	return lval, errs
 }
 
-func (p *parser) objectValue(isConst bool) (*InputObjectValue, []error) {
+func (p *parser) objectValue(depth int, isConst bool) (*InputObjectValue, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	ioval := new(InputObjectValue)
 	var errs []error
 	ioval.LBrace, ioval.RBrace, errs = p.group(lbrace, rbrace, "object field", func() []error {
@@ -494,7 +531,7 @@ func (p *parser) objectValue(isConst bool) (*InputObjectValue, []error) {
 		field.Colon = tok.start
 		p.next()
 		var fieldErrs []error
-		field.Value, fieldErrs = p.value(isConst)
+		field.Value, fieldErrs = p.value(depth+1, isConst)
 		ioval.Fields = append(ioval.Fields, field)
 		return fieldErrs
 	})
@@ -507,11 +544,14 @@ func (p *parser) objectValue(isConst bool) (*InputObjectValue, []error) {
 	return ioval, errs
 }
 
-func (p *parser) variableDefinitions() (*VariableDefinitions, []error) {
+func (p *parser) variableDefinitions(depth int) (*VariableDefinitions, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	varDefs := new(VariableDefinitions)
 	var errs []error
 	varDefs.LParen, varDefs.RParen, errs = p.group(lparen, rparen, "variable definition", func() []error {
-		def, errs := p.variableDefinition()
+		def, errs := p.variableDefinition(depth + 1)
 		if def != nil {
 			varDefs.Defs = append(varDefs.Defs, def)
 		}
@@ -532,10 +572,13 @@ func (p *parser) variableDefinitions() (*VariableDefinitions, []error) {
 	return varDefs, errs
 }
 
-func (p *parser) variableDefinition() (*VariableDefinition, []error) {
+func (p *parser) variableDefinition(depth int) (*VariableDefinition, []error) {
 	// Not prepending "variable definition:" to errors, since
 	// variableDefinitions() will prepend "variable definition #X:".
 
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	def := &VariableDefinition{
 		Colon: -1,
 	}
@@ -559,15 +602,18 @@ func (p *parser) variableDefinition() (*VariableDefinition, []error) {
 	colon := p.next()
 	def.Colon = colon.start
 	var errs []error
-	def.Type, errs = p.typeRef()
+	def.Type, errs = p.typeRef(depth + 1)
 	if len(errs) > 0 {
 		return def, errs
 	}
-	def.Default, errs = p.optionalDefaultValue()
+	def.Default, errs = p.optionalDefaultValue(depth + 1)
 	return def, errs
 }
 
-func (p *parser) optionalDefaultValue() (*DefaultValue, []error) {
+func (p *parser) optionalDefaultValue(depth int) (*DefaultValue, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	if len(p.tokens) == 0 {
 		return nil, nil
 	}
@@ -578,19 +624,22 @@ func (p *parser) optionalDefaultValue() (*DefaultValue, []error) {
 		Eq: p.next().start,
 	}
 	var errs []error
-	defaultValue.Value, errs = p.value(true)
+	defaultValue.Value, errs = p.value(depth+1, true)
 	for i := range errs {
 		errs[i] = xerrors.Errorf("default value: %w", errs[i])
 	}
 	return defaultValue, errs
 }
 
-func (p *parser) typeRef() (*TypeRef, []error) {
+func (p *parser) typeRef(depth int) (*TypeRef, []error) {
 	if len(p.tokens) == 0 {
 		return nil, []error{&posError{
 			pos: p.eofPos,
 			err: xerrors.New("type: expected name or '[', got EOF"),
 		}}
+	}
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
 	}
 	switch tok := p.tokens[0]; tok.kind {
 	case name:
@@ -613,7 +662,7 @@ func (p *parser) typeRef() (*TypeRef, []error) {
 			RBracket: -1,
 		}
 		var errs []error
-		list.Type, errs = p.typeRef()
+		list.Type, errs = p.typeRef(depth + 1)
 		for i := range errs {
 			errs[i] = xerrors.Errorf("list type: %w", errs[i])
 		}
@@ -648,7 +697,10 @@ func (p *parser) typeRef() (*TypeRef, []error) {
 	}
 }
 
-func (p *parser) directives(isConst bool) (Directives, []error) {
+func (p *parser) directives(depth int, isConst bool) (Directives, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	var results Directives
 	var errs []error
 	for len(p.tokens) > 0 && p.tokens[0].kind == atSign {
@@ -669,7 +721,7 @@ func (p *parser) directives(isConst bool) (Directives, []error) {
 			continue
 		}
 		var argErrs []error
-		d.Arguments, argErrs = p.arguments(isConst)
+		d.Arguments, argErrs = p.arguments(depth+1, isConst)
 		for _, err := range argErrs {
 			errs = append(errs, xerrors.Errorf("@%s directive: %w", d.Name.Value, err))
 		}
@@ -679,7 +731,7 @@ func (p *parser) directives(isConst bool) (Directives, []error) {
 
 // fragment parses either a FragmentSpread or an InlineFragment.
 // See https://graphql.github.io/graphql-spec/June2018/#Selection
-func (p *parser) fragment() (*Selection, []error) {
+func (p *parser) fragment(depth int) (*Selection, []error) {
 	// Don't prepend "selection:", since this method is only called in the context
 	// of selection set, which already prepends "selection:".
 
@@ -688,6 +740,9 @@ func (p *parser) fragment() (*Selection, []error) {
 			pos: p.eofPos,
 			err: xerrors.New("expected '...', got EOF"),
 		}}
+	}
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
 	}
 	if p.tokens[0].kind != ellipsis {
 		return nil, []error{&posError{
@@ -706,14 +761,14 @@ func (p *parser) fragment() (*Selection, []error) {
 	case name:
 		if p.tokens[1].source == "on" {
 			// Type conditions are only present on inline fragments.
-			frag, errs := p.inlineFragment()
+			frag, errs := p.inlineFragment(depth + 1)
 			return frag.asSelection(), errs
 		}
-		spread, errs := p.fragmentSpread()
+		spread, errs := p.fragmentSpread(depth + 1)
 		return spread.asSelection(), errs
 	case lbrace:
 		// Selection sets are only present on inline fragments.
-		frag, errs := p.inlineFragment()
+		frag, errs := p.inlineFragment(depth + 1)
 		return frag.asSelection(), errs
 	default:
 		p.next() // Advance past the ellipsis to continue parsing selection set.
@@ -724,12 +779,15 @@ func (p *parser) fragment() (*Selection, []error) {
 	}
 }
 
-func (p *parser) fragmentSpread() (*FragmentSpread, []error) {
+func (p *parser) fragmentSpread(depth int) (*FragmentSpread, []error) {
 	if len(p.tokens) == 0 {
 		return nil, []error{&posError{
 			pos: p.eofPos,
 			err: xerrors.New("fragment spread: expected '...', got EOF"),
 		}}
+	}
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
 	}
 	if p.tokens[0].kind != ellipsis {
 		return nil, []error{&posError{
@@ -748,12 +806,15 @@ func (p *parser) fragmentSpread() (*FragmentSpread, []error) {
 	return spread, nil
 }
 
-func (p *parser) inlineFragment() (*InlineFragment, []error) {
+func (p *parser) inlineFragment(depth int) (*InlineFragment, []error) {
 	if len(p.tokens) == 0 {
 		return nil, []error{&posError{
 			pos: p.eofPos,
 			err: xerrors.New("inline fragment: expected '...', got EOF"),
 		}}
+	}
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
 	}
 	if p.tokens[0].kind != ellipsis {
 		return nil, []error{&posError{
@@ -772,7 +833,7 @@ func (p *parser) inlineFragment() (*InlineFragment, []error) {
 	}
 	if p.tokens[0].kind == name && p.tokens[0].source == "on" {
 		var err error
-		frag.Type, err = p.typeCondition()
+		frag.Type, err = p.typeCondition(depth + 1)
 		if err != nil {
 			return nil, []error{xerrors.Errorf("inline fragment: %w", err)}
 		}
@@ -784,20 +845,23 @@ func (p *parser) inlineFragment() (*InlineFragment, []error) {
 		}}
 	}
 	var errs []error
-	frag.SelectionSet, errs = p.selectionSet()
+	frag.SelectionSet, errs = p.selectionSet(depth + 1)
 	for i, err := range errs {
 		errs[i] = xerrors.Errorf("inline fragment: %w", err)
 	}
 	return frag, errs
 }
 
-func (p *parser) fragmentDefinition() (*FragmentDefinition, []error) {
+func (p *parser) fragmentDefinition(depth int) (*FragmentDefinition, []error) {
 	defn := new(FragmentDefinition)
 	if len(p.tokens) == 0 {
 		return nil, []error{&posError{
 			pos: p.eofPos,
 			err: xerrors.New("fragment definition: expected 'fragment', got EOF"),
 		}}
+	}
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
 	}
 	if p.tokens[0].kind != name || p.tokens[0].source != "fragment" {
 		return nil, []error{&posError{
@@ -814,25 +878,28 @@ func (p *parser) fragmentDefinition() (*FragmentDefinition, []error) {
 	if defn.Name.Value == "on" {
 		return nil, []error{xerrors.New("fragment definition: expected name, found 'on'")}
 	}
-	defn.Type, err = p.typeCondition()
+	defn.Type, err = p.typeCondition(depth + 1)
 	if err != nil {
 		return nil, []error{xerrors.Errorf("fragment definition %s: %w", defn.Name.Value, err)}
 	}
 	var errs []error
-	defn.SelectionSet, errs = p.selectionSet()
+	defn.SelectionSet, errs = p.selectionSet(depth + 1)
 	for i, err := range errs {
 		errs[i] = xerrors.Errorf("fragment definition %s: %w", defn.Name.Value, err)
 	}
 	return defn, errs
 }
 
-func (p *parser) typeCondition() (*TypeCondition, error) {
+func (p *parser) typeCondition(depth int) (*TypeCondition, error) {
 	cond := new(TypeCondition)
 	if len(p.tokens) == 0 {
 		return nil, &posError{
 			pos: p.eofPos,
 			err: xerrors.New("type condition: expected 'on', got EOF"),
 		}
+	}
+	if depth > maxParseDepth {
+		return nil, errTooDeep
 	}
 	if p.tokens[0].kind != name || p.tokens[0].source != "on" {
 		return nil, &posError{
@@ -861,7 +928,7 @@ func (p *parser) optionalDescription() *Description {
 	}
 }
 
-func (p *parser) scalarTypeDefinition() (*ScalarTypeDefinition, []error) {
+func (p *parser) scalarTypeDefinition(depth int) (*ScalarTypeDefinition, []error) {
 	def := new(ScalarTypeDefinition)
 	def.Description = p.optionalDescription()
 	if len(p.tokens) == 0 {
@@ -869,6 +936,9 @@ func (p *parser) scalarTypeDefinition() (*ScalarTypeDefinition, []error) {
 			pos: p.eofPos,
 			err: xerrors.New("scalar type definition: expected 'scalar', got EOF"),
 		}}
+	}
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
 	}
 	if p.tokens[0].kind != name || p.tokens[0].source != "scalar" {
 		return nil, []error{&posError{
@@ -885,7 +955,7 @@ func (p *parser) scalarTypeDefinition() (*ScalarTypeDefinition, []error) {
 	return def, nil
 }
 
-func (p *parser) objectTypeDefinition() (*ObjectTypeDefinition, []error) {
+func (p *parser) objectTypeDefinition(depth int) (*ObjectTypeDefinition, []error) {
 	def := new(ObjectTypeDefinition)
 	def.Description = p.optionalDescription()
 	if len(p.tokens) == 0 {
@@ -893,6 +963,9 @@ func (p *parser) objectTypeDefinition() (*ObjectTypeDefinition, []error) {
 			pos: p.eofPos,
 			err: xerrors.New("object type definition: expected 'type', got EOF"),
 		}}
+	}
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
 	}
 	if p.tokens[0].kind != name || p.tokens[0].source != "type" {
 		return nil, []error{&posError{
@@ -907,18 +980,21 @@ func (p *parser) objectTypeDefinition() (*ObjectTypeDefinition, []error) {
 		return def, []error{xerrors.Errorf("object type definition: %w", err)}
 	}
 	var errs []error
-	def.Fields, errs = p.fieldsDefinition()
+	def.Fields, errs = p.fieldsDefinition(depth + 1)
 	for i := range errs {
 		errs[i] = xerrors.Errorf("object type definition %s: %w", def.Name.Value, errs[i])
 	}
 	return def, errs
 }
 
-func (p *parser) fieldsDefinition() (*FieldsDefinition, []error) {
+func (p *parser) fieldsDefinition(depth int) (*FieldsDefinition, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	fields := new(FieldsDefinition)
 	var errs []error
 	fields.LBrace, fields.RBrace, errs = p.group(lbrace, rbrace, "field definition", func() []error {
-		def, errs := p.fieldDefinition()
+		def, errs := p.fieldDefinition(depth + 1)
 		if def != nil {
 			fields.Defs = append(fields.Defs, def)
 		}
@@ -939,10 +1015,13 @@ func (p *parser) fieldsDefinition() (*FieldsDefinition, []error) {
 	return fields, errs
 }
 
-func (p *parser) fieldDefinition() (*FieldDefinition, []error) {
+func (p *parser) fieldDefinition(depth int) (*FieldDefinition, []error) {
 	// Not prepending "field definition:" to errors, since
 	// fieldDefinitions() will prepend "field definition #X:".
 
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	field := new(FieldDefinition)
 	field.Description = p.optionalDescription()
 	var err error
@@ -959,7 +1038,7 @@ func (p *parser) fieldDefinition() (*FieldDefinition, []error) {
 	var errs []error
 	if p.tokens[0].kind == lparen {
 		var argsErrs []error
-		field.Args, argsErrs = p.argumentsDefinition()
+		field.Args, argsErrs = p.argumentsDefinition(depth + 1)
 		errs = append(errs, argsErrs...)
 		if len(p.tokens) == 0 {
 			return field, append(errs, &posError{
@@ -976,19 +1055,22 @@ func (p *parser) fieldDefinition() (*FieldDefinition, []error) {
 	}
 	field.Colon = p.next().start
 	var typeErrs []error
-	field.Type, typeErrs = p.typeRef()
+	field.Type, typeErrs = p.typeRef(depth + 1)
 	errs = append(errs, typeErrs...)
 	var directiveErrs []error
-	field.Directives, directiveErrs = p.directives(true)
+	field.Directives, directiveErrs = p.directives(depth+1, true)
 	errs = append(errs, directiveErrs...)
 	return field, errs
 }
 
-func (p *parser) argumentsDefinition() (*ArgumentsDefinition, []error) {
+func (p *parser) argumentsDefinition(depth int) (*ArgumentsDefinition, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	args := new(ArgumentsDefinition)
 	var errs []error
 	args.LParen, args.RParen, errs = p.group(lparen, rparen, "input value definition", func() []error {
-		def, errs := p.inputValueDefinition()
+		def, errs := p.inputValueDefinition(depth + 1)
 		if def != nil {
 			args.Args = append(args.Args, def)
 		}
@@ -1009,7 +1091,10 @@ func (p *parser) argumentsDefinition() (*ArgumentsDefinition, []error) {
 	return args, errs
 }
 
-func (p *parser) enumTypeDefinition() (*EnumTypeDefinition, []error) {
+func (p *parser) enumTypeDefinition(depth int) (*EnumTypeDefinition, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	defn := new(EnumTypeDefinition)
 	defn.Description = p.optionalDescription()
 	if len(p.tokens) == 0 {
@@ -1031,14 +1116,17 @@ func (p *parser) enumTypeDefinition() (*EnumTypeDefinition, []error) {
 		return defn, []error{xerrors.Errorf("enum type definition: %w", err)}
 	}
 	var errs []error
-	defn.Values, errs = p.enumValuesDefinition()
+	defn.Values, errs = p.enumValuesDefinition(depth + 1)
 	for i, err := range errs {
 		errs[i] = xerrors.Errorf("enum type definition %s: %w", defn.Name.Value, err)
 	}
 	return defn, errs
 }
 
-func (p *parser) enumValuesDefinition() (*EnumValuesDefinition, []error) {
+func (p *parser) enumValuesDefinition(depth int) (*EnumValuesDefinition, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	defn := new(EnumValuesDefinition)
 	var errs []error
 	defn.LBrace, defn.RBrace, errs = p.group(lbrace, rbrace, "enum value definition", func() []error {
@@ -1056,7 +1144,7 @@ func (p *parser) enumValuesDefinition() (*EnumValuesDefinition, []error) {
 			errs = append(errs, xerrors.Errorf("expected enum name, found reserved name %q", v))
 		}
 		var directiveErrs []error
-		valueDefn.Directives, directiveErrs = p.directives(true)
+		valueDefn.Directives, directiveErrs = p.directives(depth+1, true)
 		errs = append(errs, directiveErrs...)
 		return errs
 	})
@@ -1072,7 +1160,10 @@ func (p *parser) enumValuesDefinition() (*EnumValuesDefinition, []error) {
 	return defn, errs
 }
 
-func (p *parser) inputObjectTypeDefinition() (*InputObjectTypeDefinition, []error) {
+func (p *parser) inputObjectTypeDefinition(depth int) (*InputObjectTypeDefinition, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	def := new(InputObjectTypeDefinition)
 	def.Description = p.optionalDescription()
 	if len(p.tokens) == 0 {
@@ -1094,18 +1185,21 @@ func (p *parser) inputObjectTypeDefinition() (*InputObjectTypeDefinition, []erro
 		return def, []error{xerrors.Errorf("input object type definition: %w", err)}
 	}
 	var errs []error
-	def.Fields, errs = p.inputFieldsDefinition()
+	def.Fields, errs = p.inputFieldsDefinition(depth + 1)
 	for i := range errs {
 		errs[i] = xerrors.Errorf("input object type definition %s: %w", def.Name.Value, errs[i])
 	}
 	return def, errs
 }
 
-func (p *parser) inputFieldsDefinition() (*InputFieldsDefinition, []error) {
+func (p *parser) inputFieldsDefinition(depth int) (*InputFieldsDefinition, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	fields := new(InputFieldsDefinition)
 	var errs []error
 	fields.LBrace, fields.RBrace, errs = p.group(lbrace, rbrace, "input value definition", func() []error {
-		def, errs := p.inputValueDefinition()
+		def, errs := p.inputValueDefinition(depth + 1)
 		if def != nil {
 			fields.Defs = append(fields.Defs, def)
 		}
@@ -1126,11 +1220,14 @@ func (p *parser) inputFieldsDefinition() (*InputFieldsDefinition, []error) {
 	return fields, errs
 }
 
-func (p *parser) inputValueDefinition() (*InputValueDefinition, []error) {
+func (p *parser) inputValueDefinition(depth int) (*InputValueDefinition, []error) {
 	// Not prepending "input value definition:" to errors, since
 	// argumentsDefinition() and inputFieldDefinitions() will prepend
 	// "input value definition #X:".
 
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
 	field := new(InputValueDefinition)
 	field.Description = p.optionalDescription()
 	var err error
@@ -1152,11 +1249,11 @@ func (p *parser) inputValueDefinition() (*InputValueDefinition, []error) {
 	}
 	field.Colon = p.next().start
 	var errs []error
-	field.Type, errs = p.typeRef()
+	field.Type, errs = p.typeRef(depth + 1)
 	if len(errs) > 0 {
 		return field, errs
 	}
-	field.Default, errs = p.optionalDefaultValue()
+	field.Default, errs = p.optionalDefaultValue(depth + 1)
 	return field, errs
 }
 

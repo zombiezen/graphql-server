@@ -17,6 +17,7 @@
 package gqlang
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -1022,6 +1023,27 @@ input ItemInput {
 			}
 		})
 	}
+
+	t.Run("SizeLimit", func(t *testing.T) {
+		_, errs := Parse(strings.Repeat(" ", maxSize+1))
+		if len(errs) == 0 {
+			t.Error("Did not get error from large document")
+		}
+	})
+
+	t.Run("DepthLimit", func(t *testing.T) {
+		schema := new(strings.Builder)
+		for i := 0; i < maxParseDepth/2+1; i++ {
+			schema.WriteString("{ x ")
+		}
+		for i := 0; i < maxParseDepth/2+1; i++ {
+			schema.WriteString("} ")
+		}
+		_, errs := Parse(schema.String())
+		if len(errs) == 0 {
+			t.Error("Did not get error from deep document")
+		}
+	})
 }
 
 func BenchmarkParse(b *testing.B) {
