@@ -38,7 +38,9 @@ improvements, the largest new user-facing feature is [fragments][].
 
 -  `graphqlhttp.Handler` handles `OPTIONS` requests by returning 204 No Content.
    ([#21][])
+-  GraphQL documents now have depth and size limits. ([#1][])
 
+[#1]: https://github.com/zombiezen/graphql-server/issues/1
 [#21]: https://github.com/zombiezen/graphql-server/issues/21
 
 ### Fixed

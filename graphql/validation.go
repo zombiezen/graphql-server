@@ -43,7 +43,7 @@ func (schema *Schema) validateRequest(source string, doc *gqlang.Document) []err
 			continue
 		}
 		name := defn.Fragment.Name.Value
-		if err := detectFragmentCycles(docScope, map[string]struct{}{name: {}}, defn.Fragment.SelectionSet); err != nil {
+		if err := detectFragmentCycles(docScope, 1, map[string]struct{}{name: {}}, defn.Fragment.SelectionSet); err != nil {
 			return []error{err}
 		}
 	}
@@ -141,18 +141,21 @@ func (schema *Schema) validateStructure(source string, doc *gqlang.Document) (ma
 	return fragments, errs
 }
 
-func detectFragmentCycles(v *validationScope, visited map[string]struct{}, set *gqlang.SelectionSet) error {
+func detectFragmentCycles(v *validationScope, depth int, visited map[string]struct{}, set *gqlang.SelectionSet) error {
 	if set == nil {
 		return nil
+	}
+	if depth > 20 {
+		return xerrors.New("fragment references too deep")
 	}
 	for _, sel := range set.Sel {
 		switch {
 		case sel.Field != nil:
-			if err := detectFragmentCycles(v, visited, sel.Field.SelectionSet); err != nil {
+			if err := detectFragmentCycles(v, depth+1, visited, sel.Field.SelectionSet); err != nil {
 				return err
 			}
 		case sel.InlineFragment != nil:
-			if err := detectFragmentCycles(v, visited, sel.InlineFragment.SelectionSet); err != nil {
+			if err := detectFragmentCycles(v, depth+1, visited, sel.InlineFragment.SelectionSet); err != nil {
 				return err
 			}
 		case sel.FragmentSpread != nil:
@@ -170,7 +173,7 @@ func detectFragmentCycles(v *validationScope, visited map[string]struct{}, set *
 				continue
 			}
 			visited[name] = struct{}{}
-			if err := detectFragmentCycles(v, visited, frag.SelectionSet); err != nil {
+			if err := detectFragmentCycles(v, depth+1, visited, frag.SelectionSet); err != nil {
 				return err
 			}
 			delete(visited, name)
