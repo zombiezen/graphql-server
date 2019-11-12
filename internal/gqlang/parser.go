@@ -36,10 +36,12 @@ func Parse(input string) (*Document, []error) {
 			errs = append(errs, &posError{
 				input: input,
 				pos:   tok.start,
-				err:   xerrors.Errorf("unrecognized symbol %q", tok.source),
+				err:   xerrors.Errorf("parse: unrecognized symbol %q", tok.source),
 			})
 		case stringValue:
-			errs = append(errs, validateStringToken(input, tok)...)
+			for _, err := range validateStringToken(input, tok) {
+				errs = append(errs, xerrors.Errorf("parse: %w", err))
+			}
 		}
 	}
 	if len(errs) > 0 {
@@ -50,8 +52,8 @@ func Parse(input string) (*Document, []error) {
 		defn, defnErrs := p.definition()
 		for _, err := range defnErrs {
 			fillErrorInput(err, input)
+			errs = append(errs, xerrors.Errorf("parse: %w", err))
 		}
-		errs = append(errs, defnErrs...)
 		if defn == nil {
 			break
 		}
