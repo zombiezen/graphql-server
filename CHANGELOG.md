@@ -5,11 +5,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased][]
 
+[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.2.0...HEAD
+
+## [0.2.0][]
+
 This release focused on implementing the functionality necessary to make GraphQL
 servers operate correctly with [GraphQL Playground][]. Beyond introspection
 improvements, the largest new user-facing feature is [fragments][].
 
-[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/zombiezen/graphql-server/releases/tag/v0.2.0
 [GraphQL Playground]: https://github.com/prisma-labs/graphql-playground
 [fragments]: https://graphql.org/learn/queries/#fragments
 
