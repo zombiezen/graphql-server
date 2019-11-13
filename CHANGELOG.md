@@ -49,8 +49,12 @@ improvements, the largest new user-facing feature is [fragments][].
 -  Built-in types are now surfaced in introspection. ([#5][])
 -  Requesting `__schema.directives` no longer causes an error.
 -  `__type.interfaces` will be an empty list for objects.
+-  When an error is encountered when resolving an element of a list with
+   nullable elements, the list element is `null` instead of the whole list.
+   ([#3][])
 
 [#2]: https://github.com/zombiezen/graphql-server/issues/2
+[#3]: https://github.com/zombiezen/graphql-server/issues/3
 [#5]: https://github.com/zombiezen/graphql-server/issues/5
 [#24]: https://github.com/zombiezen/graphql-server/issues/24
 

@@ -34,6 +34,7 @@ func TestExecute(t *testing.T) {
 	const schemaSource = `
 		type Query {
 			myString: String
+			myNonNullString: String!
 			myBoolean: Boolean
 			myInt: Int
 			myInt32: Int
@@ -42,6 +43,8 @@ func TestExecute(t *testing.T) {
 			myStringId: ID
 			myList: [Int!]!
 			myObjectList: [Dog!]!
+			myErrorList: [String]
+			myNonNullErrorList: [String!]
 			myDog: Dog
 			myDirection: Direction
 
@@ -118,6 +121,24 @@ func TestExecute(t *testing.T) {
 			request: Request{Query: `{ myString }`},
 			want: []fieldExpectations{
 				{key: "myString", value: valueExpectations{null: true}},
+			},
+		},
+		{
+			name: "String/NullInNonNull",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyNonNullString: NullString{}}
+			},
+			request: Request{Query: `{ myNonNullString }`},
+			want: []fieldExpectations{
+				{key: "myNonNullString", value: valueExpectations{null: true}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{{1, 3}},
+					Path: []PathSegment{
+						{Field: "myNonNullString"},
+					},
+				},
 			},
 		},
 		{
@@ -448,6 +469,48 @@ func TestExecute(t *testing.T) {
 						{key: "name", value: valueExpectations{scalar: "Rover"}},
 					}},
 				}}},
+			},
+		},
+		{
+			name: "List/Errors/NullableElements",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyErrorList: []testErrorScalar{true, false, true}}
+			},
+			request: Request{Query: `{ myErrorList }`},
+			want: []fieldExpectations{
+				{key: "myErrorList", value: valueExpectations{list: []valueExpectations{
+					{scalar: "ok"},
+					{null: true},
+					{scalar: "ok"},
+				}}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{{1, 3}},
+					Path: []PathSegment{
+						{Field: "myErrorList"},
+						{ListIndex: 1},
+					},
+				},
+			},
+		},
+		{
+			name: "List/Errors/NonNullableElements",
+			queryObject: func(e errorfer) interface{} {
+				return &testQueryStruct{MyNonNullErrorList: []testErrorScalar{true, false, true}}
+			},
+			request: Request{Query: `{ myNonNullErrorList }`},
+			want: []fieldExpectations{
+				{key: "myNonNullErrorList", value: valueExpectations{null: true}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{{1, 3}},
+					Path: []PathSegment{
+						{Field: "myNonNullErrorList"},
+						{ListIndex: 1},
+					},
+				},
 			},
 		},
 		{
@@ -1076,17 +1139,20 @@ func TestExecute(t *testing.T) {
 }
 
 type testQueryStruct struct {
-	MyString     NullString
-	MyBoolean    NullBoolean
-	MyInt        *int
-	MyInt32      NullInt
-	MyIntID      NullInt
-	MyInt64ID    *int64
-	MyStringID   NullString
-	MyList       []int32
-	MyObjectList []*testDogStruct
-	MyDog        *testDogStruct
-	MyDirection  NullString
+	MyString           NullString
+	MyNonNullString    NullString
+	MyBoolean          NullBoolean
+	MyInt              *int
+	MyInt32            NullInt
+	MyIntID            NullInt
+	MyInt64ID          *int64
+	MyStringID         NullString
+	MyList             []int32
+	MyObjectList       []*testDogStruct
+	MyErrorList        []testErrorScalar
+	MyNonNullErrorList []testErrorScalar
+	MyDog              *testDogStruct
+	MyDirection        NullString
 
 	e errorfer
 }
@@ -1223,6 +1289,15 @@ func (q *testQueryStruct) InputObjectArgument(args map[string]Value) string {
 type testDogStruct struct {
 	Name       string
 	BarkVolume NullInt
+}
+
+type testErrorScalar bool
+
+func (s testErrorScalar) MarshalText() ([]byte, error) {
+	if !s {
+		return nil, xerrors.New("flail")
+	}
+	return []byte("ok"), nil
 }
 
 func newString(s string) *string { return &s }

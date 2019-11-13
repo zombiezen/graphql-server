@@ -69,18 +69,18 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 			return Value{typ: typ}, []error{xerrors.Errorf("cannot convert %v to %v", goValue.Type(), typ)}
 		}
 		gqlValues := make([]Value, goValue.Len())
+		var errs []error
 		for i := range gqlValues {
-			var errs []error
-			gqlValues[i], errs = schema.valueFromGo(ctx, variables, goValue.Index(i), typ.listElem, sel)
-			if len(errs) > 0 {
-				for j := range errs {
-					errs[j] = &listElementError{idx: i, err: errs[j]}
-				}
-				// TODO(soon): Only return if element types are non-nullable.
+			var ierrs []error
+			gqlValues[i], ierrs = schema.valueFromGo(ctx, variables, goValue.Index(i), typ.listElem, sel)
+			for _, err := range ierrs {
+				errs = append(errs, &listElementError{idx: i, err: err})
+			}
+			if len(errs) > 0 && !typ.listElem.isNullable() {
 				return Value{typ: typ}, errs
 			}
 		}
-		return Value{typ: typ, val: gqlValues}, nil
+		return Value{typ: typ, val: gqlValues}, errs
 	case typ.isObject():
 		if sel == nil {
 			return Value{typ: typ, val: []Field(nil)}, nil
@@ -239,7 +239,7 @@ func (schema *Schema) readField(ctx context.Context, variables map[string]Value,
 		for i := range errs {
 			errs[i] = wrapFieldError(f.key, f.loc, errs[i])
 		}
-		return Value{typ: typ}, errs
+		return v, errs
 	}
 	return v, nil
 }
