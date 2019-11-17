@@ -61,6 +61,14 @@ func TestSelectionSet_Has(t *testing.T) {
 			fieldName: "foo",
 			want:      true,
 		},
+		{
+			name: "Typename",
+			request: Request{
+				Query: `{ object { __typename }}`,
+			},
+			fieldName: "__typename",
+			want:      true,
+		},
 	}
 	schema, err := ParseSchema(selectionSetTestSchema, nil)
 	if err != nil {
@@ -130,6 +138,14 @@ func TestSelectionSet_OnlyUses(t *testing.T) {
 				Query: `{ object { foo }}`,
 			},
 			fields: []string{"foo", "bar"},
+			want:   true,
+		},
+		{
+			name: "IgnoresTypename",
+			request: Request{
+				Query: `{ object { __typename, foo }}`,
+			},
+			fields: []string{"foo"},
 			want:   true,
 		},
 	}

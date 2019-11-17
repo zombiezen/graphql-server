@@ -160,12 +160,15 @@ func (set *SelectionSet) Has(name string) bool {
 }
 
 // OnlyUses returns true if and only if the selection set does not include
-// fields beyond those given as arguments.
+// fields beyond those given as arguments and __typename.
 func (set *SelectionSet) OnlyUses(names ...string) bool {
 	// I'm assuming that names is a small (0-10) list, so avoiding a map
 	// allocation and comparing directly.
 fieldLoop:
 	for _, f := range set.fields {
+		if f.name == typeNameFieldName {
+			continue
+		}
 		for _, name := range names {
 			if f.name == name {
 				continue fieldLoop
