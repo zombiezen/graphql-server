@@ -5,7 +5,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased][]
 
-[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.3.1...HEAD
+
+## [0.3.1][]
+
+This release fixes behavior of the new `SelectionSet.OnlyUses` method.
+
+[0.3.1]: https://github.com/zombiezen/graphql-server/releases/tag/v0.3.1
 
 ### Fixed
 
