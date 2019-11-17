@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.2.0...HEAD
 
+### Added
+
+-  `SelectionSet` has a new method: [`OnlyUses`][] ([#20][])
+
+[#20]: https://github.com/zombiezen/graphql-server/issues/20
+[`OnlyUses`]: https://pkg.go.dev/zombiezen.com/go/graphql-server/graphql#SelectionSet.OnlyUses
+
 ## [0.2.0][]
 
 This release focused on implementing the functionality necessary to make GraphQL

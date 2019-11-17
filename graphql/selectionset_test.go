@@ -85,6 +85,77 @@ func TestSelectionSet_Has(t *testing.T) {
 	}
 }
 
+func TestSelectionSet_OnlyUses(t *testing.T) {
+	tests := []struct {
+		name    string
+		request Request
+		fields  []string
+		want    bool
+	}{
+		{
+			name: "EmptySet",
+			request: Request{
+				Query: `{ object { foo }}`,
+			},
+			fields: nil,
+			want:   false,
+		},
+		{
+			name: "SameSet",
+			request: Request{
+				Query: `{ object { foo }}`,
+			},
+			fields: []string{"foo"},
+			want:   true,
+		},
+		{
+			name: "DistinctSet",
+			request: Request{
+				Query: `{ object { foo }}`,
+			},
+			fields: []string{"bar"},
+			want:   false,
+		},
+		{
+			name: "Intersection",
+			request: Request{
+				Query: `{ object { foo, bar }}`,
+			},
+			fields: []string{"foo", "baz"},
+			want:   false,
+		},
+		{
+			name: "Superset",
+			request: Request{
+				Query: `{ object { foo }}`,
+			},
+			fields: []string{"foo", "bar"},
+			want:   true,
+		},
+	}
+	schema, err := ParseSchema(selectionSetTestSchema, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			q := new(selectionSetQuery)
+			srv, err := NewServer(schema, q, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp := srv.Execute(context.Background(), test.request)
+			if len(resp.Errors) > 0 {
+				t.Fatal(resp.Errors)
+			}
+			got := q.readSet().OnlyUses(test.fields...)
+			if got != test.want {
+				t.Errorf("OnlyUses(%q) = %t; want %t. Query:\n%s", test.fields, got, test.want, test.request.Query)
+			}
+		})
+	}
+}
+
 type selectionSetQuery struct {
 	mu  sync.Mutex
 	set *SelectionSet

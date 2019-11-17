@@ -159,6 +159,23 @@ func (set *SelectionSet) Has(name string) bool {
 	return false
 }
 
+// OnlyUses returns true if and only if the selection set does not include
+// fields beyond those given as arguments.
+func (set *SelectionSet) OnlyUses(names ...string) bool {
+	// I'm assuming that names is a small (0-10) list, so avoiding a map
+	// allocation and comparing directly.
+fieldLoop:
+	for _, f := range set.fields {
+		for _, name := range names {
+			if f.name == name {
+				continue fieldLoop
+			}
+		}
+		return false
+	}
+	return true
+}
+
 // FieldsWithName returns the fields in the selection set with the given name.
 // There may be multiple in the case of a field alias.
 func (set *SelectionSet) FieldsWithName(name string) []*SelectedField {
