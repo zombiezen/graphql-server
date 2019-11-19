@@ -5,9 +5,9 @@
 This repository contains Go packages for creating a [GraphQL][] server. The
 primary focus is on simplicity and efficiency of the server endpoints.
 
-**This library is still under development and should not be used in production.**
-You can see known issues about [compliance to the specification][spec-compliance]
-or [production-readiness][productionization] in the issue tracker.
+**This library is pre-1.0, so there may still be API changes.** You can find
+known issues about [compliance to the specification][spec-compliance] or
+[production-readiness][productionization] in the issue tracker.
 
 [GraphQL]: https://graphql.org/
 [productionization]: https://github.com/zombiezen/graphql-server/labels/productionization
