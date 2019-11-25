@@ -1,0 +1,5 @@
+"A single task in a project"
+type Item {
+	id: ID!
+	completedAt: DateTime
+}

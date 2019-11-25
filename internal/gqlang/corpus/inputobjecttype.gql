@@ -1,0 +1,5 @@
+"Parameters for creating an item"
+input ItemInput {
+	projectId: ID
+	text: String!
+}

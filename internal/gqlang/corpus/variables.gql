@@ -1,0 +1,1 @@
+query getProfile($devicePicSize: Int) { user { profilePic(size: $devicePicSize) } }

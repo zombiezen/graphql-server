@@ -1,0 +1,4 @@
+"""
+An RFC 3339 datetime
+"""
+scalar DateTime

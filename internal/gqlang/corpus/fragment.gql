@@ -1,0 +1,4 @@
+fragment friendFields on User {
+  id
+  name
+}
