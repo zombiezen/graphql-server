@@ -15,6 +15,13 @@ known issues about [compliance to the specification][spec-compliance] or
 
 ## Getting Started
 
+The easiest way to get started with this library is to follow the directions in
+the [graphql-go-app README][] to create a project. This will set you up with a
+GraphQL server with a [Single-Page Application][] using [TypeScript][] and
+[React][].
+
+If you want to integrate the library into an existing project, then run:
+
 ```
 go get zombiezen.com/go/graphql-server/graphql
 ```
@@ -22,8 +29,12 @@ go get zombiezen.com/go/graphql-server/graphql
 Then, look at the [main package example][] for how to write a server type and
 the [`graphqlhttp` package example][] for how to start serving over HTTP.
 
-[main package example]: https://godoc.org/zombiezen.com/go/graphql-server/graphql#example-package
+[graphql-go-app README]: https://github.com/zombiezen/graphql-go-app/blob/master/README.md#getting-started
 [`graphqlhttp` package example]: https://godoc.org/zombiezen.com/go/graphql-server/graphqlhttp#example-package
+[main package example]: https://godoc.org/zombiezen.com/go/graphql-server/graphql#example-package
+[React]: https://reactjs.org/
+[Single-Page Application]: https://en.wikipedia.org/wiki/Single-page_application
+[TypeScript]: https://www.typescriptlang.org/
 
 ## Comparison With Other Libraries
 

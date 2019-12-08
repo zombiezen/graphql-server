@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.3.1...HEAD
 
+### Added
+
+-  A new application template is available: [graphql-go-app][]. This makes it
+   easier to get to a productive application quickly.
+
+[graphql-go-app]: https://github.com/zombiezen/graphql-go-app
+
 ## [0.3.1][]
 
 This release fixes behavior of the new `SelectionSet.OnlyUses` method.
