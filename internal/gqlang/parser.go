@@ -271,6 +271,9 @@ func (p *parser) field(depth int) (*Field, []error) {
 		if err != nil {
 			return f, []error{xerrors.Errorf("field: %w", err)}
 		}
+		if len(p.tokens) == 0 {
+			return f, nil
+		}
 	}
 	var errs []error
 	if p.tokens[0].kind == lparen {

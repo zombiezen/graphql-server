@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [graphql-go-app]: https://github.com/zombiezen/graphql-go-app
 
+### Fixed
+
+-  An unclosed operation ending with an aliased field no longer crashes the
+   parser. This bug found through use of [go-fuzz][].
+
+[go-fuzz]: https://github.com/dvyukov/go-fuzz
+
 ## [0.3.1][]
 
 This release fixes behavior of the new `SelectionSet.OnlyUses` method.

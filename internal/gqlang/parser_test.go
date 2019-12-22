@@ -983,6 +983,37 @@ input ItemInput {
 				},
 			},
 		},
+		{
+			name:  "Malformed/FieldAlias",
+			input: `{s:f`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Operation: &Operation{
+						Type:  Query,
+						Start: 0,
+						SelectionSet: &SelectionSet{
+							LBrace: 0,
+							Sel: []*Selection{
+								{Field: &Field{
+									Alias: &Name{
+										Start: 1,
+										Value: "s",
+									},
+									Name: &Name{
+										Start: 3,
+										Value: "f",
+									},
+								}},
+							},
+							RBrace: -1,
+						},
+					}},
+				},
+			},
+			wantErrs: posSet{
+				4: {},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
