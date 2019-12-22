@@ -1,0 +1,4 @@
+fragment s on r {
+  d
+  e
+}

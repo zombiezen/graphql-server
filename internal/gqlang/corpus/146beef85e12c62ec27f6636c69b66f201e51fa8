@@ -1,0 +1,5 @@
+""
+type I {
+	d: ID!
+	A: DT
+}
