@@ -30,6 +30,6 @@ jobs:
       env:
         GO111MODULE: on
     - name: Run tests
-      run: go test -mod=readonly -v ./...
+      run: go test -mod=readonly -race -v ./...
       env:
         GO111MODULE: on
