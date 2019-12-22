@@ -23,6 +23,7 @@ import (
 )
 
 func TestSelectionSet_Has(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		request   Request
@@ -94,6 +95,7 @@ func TestSelectionSet_Has(t *testing.T) {
 }
 
 func TestSelectionSet_OnlyUses(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		request Request

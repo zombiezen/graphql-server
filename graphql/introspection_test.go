@@ -22,6 +22,7 @@ import (
 )
 
 func TestIntrospection(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		schema      string

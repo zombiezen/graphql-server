@@ -24,6 +24,7 @@ import (
 )
 
 func TestValidate(t *testing.T) {
+	t.Parallel()
 	// Schema from https://graphql.github.io/graphql-spec/June2018/#example-26a9d,
 	// https://graphql.github.io/graphql-spec/June2018/#example-1891c, and
 	// https://graphql.github.io/graphql-spec/June2018/#example-f3185.

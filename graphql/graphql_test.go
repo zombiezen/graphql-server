@@ -31,6 +31,7 @@ import (
 )
 
 func TestExecute(t *testing.T) {
+	t.Parallel()
 	const schemaSource = `
 		type Query {
 			myString: String
@@ -1387,6 +1388,7 @@ func (p prefixErrorfer) Errorf(format string, arguments ...interface{}) {
 }
 
 func TestResponseMarshalJSON(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		v    Response

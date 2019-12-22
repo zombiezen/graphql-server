@@ -23,6 +23,7 @@ import (
 )
 
 func TestParseSchema(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		source  string
@@ -280,6 +281,7 @@ func TestParseSchema(t *testing.T) {
 }
 
 func TestParseSchemaFile(t *testing.T) {
+	t.Parallel()
 	f, err := ioutil.TempFile("", "graphql-test*.gql")
 	if err != nil {
 		t.Fatal(err)
