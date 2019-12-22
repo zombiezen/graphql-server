@@ -12,6 +12,9 @@
         "kind": "test",
         "isDefault": true
       },
+      "presentation": {
+        "clear": true
+      },
       "problemMatcher": ["$go"]
     }
   ]
