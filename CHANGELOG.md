@@ -11,8 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -  A new application template is available: [graphql-go-app][]. This makes it
    easier to get to a productive application quickly.
+-  `SelectionSet` has a new method `HasAny` to check for multiple fields at
+   once. ([#28][])
 
+[#28]: https://github.com/zombiezen/graphql-server/issues/28
 [graphql-go-app]: https://github.com/zombiezen/graphql-go-app
+
+### Changed
+
+-  `*SelectionSet.Has` and `*SelectionSet.OnlyUses` now permit dotted field
+   syntax to more conveniently check nested fields. ([#31][])
+
+[#31]: https://github.com/zombiezen/graphql-server/issues/31
 
 ### Fixed
 

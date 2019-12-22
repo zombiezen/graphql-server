@@ -20,31 +20,57 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
-func TestSelectionSet_Has(t *testing.T) {
+func TestSelectionSet_HasAny(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name      string
-		request   Request
-		fieldName string
-		want      bool
+		name       string
+		request    Request
+		fieldNames []string
+		want       bool
 	}{
 		{
 			name: "Present",
 			request: Request{
 				Query: `{ object { foo }}`,
 			},
-			fieldName: "foo",
-			want:      true,
+			fieldNames: []string{"foo"},
+			want:       true,
+		},
+		{
+			name: "PartialPresent",
+			request: Request{
+				Query: `{ object { foo }}`,
+			},
+			fieldNames: []string{"foo", "bar"},
+			want:       true,
 		},
 		{
 			name: "Absent",
 			request: Request{
 				Query: `{ object { foo }}`,
 			},
-			fieldName: "bar",
-			want:      false,
+			fieldNames: []string{"bar"},
+			want:       false,
+		},
+		{
+			name: "EmptyName",
+			request: Request{
+				Query: `{ object { foo }}`,
+			},
+			fieldNames: []string{""},
+			want:       false,
+		},
+		{
+			name: "Empty",
+			request: Request{
+				Query: `{ object { foo }}`,
+			},
+			fieldNames: []string{},
+			want:       false,
 		},
 		{
 			name: "ThroughFragment",
@@ -59,16 +85,40 @@ func TestSelectionSet_Has(t *testing.T) {
 				}
 				`,
 			},
-			fieldName: "foo",
-			want:      true,
+			fieldNames: []string{"foo"},
+			want:       true,
 		},
 		{
 			name: "Typename",
 			request: Request{
 				Query: `{ object { __typename }}`,
 			},
-			fieldName: "__typename",
-			want:      true,
+			fieldNames: []string{"__typename"},
+			want:       true,
+		},
+		{
+			name: "Dotted/Present",
+			request: Request{
+				Query: `{ object { baz { quux } }}`,
+			},
+			fieldNames: []string{"baz.quux"},
+			want:       true,
+		},
+		{
+			name: "Dotted/OuterAbsent",
+			request: Request{
+				Query: `{ object { foo }}`,
+			},
+			fieldNames: []string{"baz.quux"},
+			want:       false,
+		},
+		{
+			name: "Dotted/InnerAbsent",
+			request: Request{
+				Query: `{ object { baz { snafu } }}`,
+			},
+			fieldNames: []string{"baz.quux"},
+			want:       false,
 		},
 	}
 	schema, err := ParseSchema(selectionSetTestSchema, nil)
@@ -86,11 +136,28 @@ func TestSelectionSet_Has(t *testing.T) {
 			if len(resp.Errors) > 0 {
 				t.Fatal(resp.Errors)
 			}
-			got := q.readSet().Has(test.fieldName)
+			got := q.readSet().HasAny(test.fieldNames...)
 			if got != test.want {
-				t.Errorf("Has(%q) = %t; want %t. Query:\n%s", test.fieldName, got, test.want, test.request.Query)
+				t.Errorf("HasAny(%q) = %t; want %t. Query:\n%s", test.fieldNames, got, test.want, test.request.Query)
 			}
 		})
+		if len(test.fieldNames) == 1 {
+			t.Run("Has/"+test.name, func(t *testing.T) {
+				q := new(selectionSetQuery)
+				srv, err := NewServer(schema, q, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp := srv.Execute(context.Background(), test.request)
+				if len(resp.Errors) > 0 {
+					t.Fatal(resp.Errors)
+				}
+				got := q.readSet().Has(test.fieldNames[0])
+				if got != test.want {
+					t.Errorf("Has(%q) = %t; want %t. Query:\n%s", test.fieldNames[0], got, test.want, test.request.Query)
+				}
+			})
+		}
 	}
 }
 
@@ -150,6 +217,38 @@ func TestSelectionSet_OnlyUses(t *testing.T) {
 			fields: []string{"foo"},
 			want:   true,
 		},
+		{
+			name: "Dotted/SameSet",
+			request: Request{
+				Query: `{ object { baz { quux } }}`,
+			},
+			fields: []string{"baz.quux"},
+			want:   true,
+		},
+		{
+			name: "Dotted/OuterAbsent",
+			request: Request{
+				Query: `{ object { foo }}`,
+			},
+			fields: []string{"foo", "baz.quux"},
+			want:   true,
+		},
+		{
+			name: "Dotted/InnerAbsent",
+			request: Request{
+				Query: `{ object { baz { snafu } }}`,
+			},
+			fields: []string{"baz.quux", "baz.snafu"},
+			want:   true,
+		},
+		{
+			name: "Dotted/InnerDistinct",
+			request: Request{
+				Query: `{ object { baz { snafu } }}`,
+			},
+			fields: []string{"baz.quux"},
+			want:   false,
+		},
 	}
 	schema, err := ParseSchema(selectionSetTestSchema, nil)
 	if err != nil {
@@ -197,6 +296,10 @@ func (q *selectionSetQuery) readSet() *SelectionSet {
 type selectionSetQueryObject struct {
 	Foo string
 	Bar string
+	Baz struct {
+		Quux  string
+		Snafu bool
+	}
 }
 
 const selectionSetTestSchema = `
@@ -207,5 +310,83 @@ type Query {
 type Object {
 	foo: String!
 	bar: String!
+	baz: Baz!
+}
+
+type Baz {
+	quux: String!
+	snafu: Boolean!
 }
 `
+
+func TestNewFieldTree(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		names []string
+		want  fieldTree
+	}{
+		{
+			name:  "Empty",
+			names: []string{},
+			want:  fieldTree{},
+		},
+		{
+			name:  "SinglePart",
+			names: []string{"foo"},
+			want: fieldTree{
+				"foo": {selected: true},
+			},
+		},
+		{
+			name:  "TwoSingleParts",
+			names: []string{"foo", "bar"},
+			want: fieldTree{
+				"foo": {selected: true},
+				"bar": {selected: true},
+			},
+		},
+		{
+			name:  "TwoParts",
+			names: []string{"foo.bar"},
+			want: fieldTree{
+				"foo": {
+					subtree: fieldTree{
+						"bar": {selected: true},
+					},
+				},
+			},
+		},
+		{
+			name:  "TwoPartsWithParent",
+			names: []string{"foo.bar", "foo"},
+			want: fieldTree{
+				"foo": {
+					selected: true,
+					subtree: fieldTree{
+						"bar": {selected: true},
+					},
+				},
+			},
+		},
+		{
+			name:  "ExtraDots",
+			names: []string{".foo..bar."},
+			want: fieldTree{
+				"foo": {
+					subtree: fieldTree{
+						"bar": {selected: true},
+					},
+				},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := newFieldTree(test.names)
+			if diff := cmp.Diff(test.want, got, cmp.AllowUnexported(fieldTreeNode{})); diff != "" {
+				t.Errorf("newFieldTree(%#v) (-want +got):\n%s", test.names, diff)
+			}
+		})
+	}
+}

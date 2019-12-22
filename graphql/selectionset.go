@@ -17,6 +17,8 @@
 package graphql
 
 import (
+	"strings"
+
 	"golang.org/x/xerrors"
 	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
@@ -147,13 +149,47 @@ func (set *SelectionSet) find(key string) *SelectedField {
 }
 
 // Has reports whether the selection set includes the field with the given name.
+//
+// The argument may contain dots to check for subfields. For example, Has("a.b")
+// returns whether the selection set contains a field "a" whose selection set
+// contains a field "b".
 func (set *SelectionSet) Has(name string) bool {
-	if set == nil {
+	return set.HasAny(name)
+}
+
+// HasAny reports whether the selection set includes fields with any of the
+// given names. If no names are given, then HasAny returns false.
+//
+// The argument may contain dots to check for subfields. For example,
+// HasAny("a.b") returns whether the selection set contains a field "a" whose
+// selection set contains a field "b".
+func (set *SelectionSet) HasAny(names ...string) bool {
+	type frame struct {
+		fields []*SelectedField
+		query  fieldTree
+	}
+
+	if set == nil || len(names) == 0 {
 		return false
 	}
-	for _, f := range set.fields {
-		if f.name == name {
-			return true
+	stack := []frame{{
+		fields: set.fields,
+		query:  newFieldTree(names),
+	}}
+	for len(stack) > 0 {
+		currFrame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, f := range currFrame.fields {
+			node := currFrame.query[f.name]
+			if node.selected {
+				return true
+			}
+			if f.sub != nil && len(currFrame.query) > 0 {
+				stack = append(stack, frame{
+					fields: f.sub.fields,
+					query:  node.subtree,
+				})
+			}
 		}
 	}
 	return false
@@ -161,22 +197,74 @@ func (set *SelectionSet) Has(name string) bool {
 
 // OnlyUses returns true if and only if the selection set does not include
 // fields beyond those given as arguments and __typename.
+//
+// The arguments may contain dots to check for subfields. For example, "a.b"
+// refers to a field named "b" inside the selection set of a field named "a".
 func (set *SelectionSet) OnlyUses(names ...string) bool {
-	// I'm assuming that names is a small (0-10) list, so avoiding a map
-	// allocation and comparing directly.
-fieldLoop:
-	for _, f := range set.fields {
-		if f.name == typeNameFieldName {
-			continue
-		}
-		for _, name := range names {
-			if f.name == name {
-				continue fieldLoop
+	type frame struct {
+		fields  []*SelectedField
+		allowed fieldTree
+	}
+
+	stack := []frame{{
+		fields:  set.fields,
+		allowed: newFieldTree(names),
+	}}
+	for len(stack) > 0 {
+		currFrame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, f := range currFrame.fields {
+			if f.name != typeNameFieldName && !currFrame.allowed.has(f.name) {
+				return false
+			}
+			if f.sub != nil {
+				stack = append(stack, frame{
+					fields:  f.sub.fields,
+					allowed: currFrame.allowed[f.name].subtree,
+				})
 			}
 		}
-		return false
 	}
 	return true
+}
+
+// A fieldTree stores a tree of field names.
+type fieldTree map[string]fieldTreeNode
+
+type fieldTreeNode struct {
+	selected bool
+	subtree  fieldTree
+}
+
+func newFieldTree(names []string) fieldTree {
+	tree := make(fieldTree)
+	for _, name := range names {
+		name = strings.TrimLeft(name, ".")
+		curr := tree
+		for len(name) > 0 {
+			var part string
+			if i := strings.IndexByte(name, '.'); i != -1 {
+				part, name = name[:i], strings.TrimLeft(name[i+1:], ".")
+			} else {
+				part, name = name, ""
+			}
+			node := curr[part]
+			if len(name) == 0 {
+				node.selected = true
+				curr[part] = node
+			} else if node.subtree == nil {
+				node.subtree = make(fieldTree)
+				curr[part] = node
+			}
+			curr = node.subtree
+		}
+	}
+	return tree
+}
+
+func (tree fieldTree) has(part string) bool {
+	_, ok := tree[part]
+	return ok
 }
 
 // FieldsWithName returns the fields in the selection set with the given name.
