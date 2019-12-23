@@ -26,9 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+-  Introspection now returns the default value of a field or argument. ([#32][])
 -  An unclosed operation ending with an aliased field no longer crashes the
    parser. This bug found through use of [go-fuzz][].
 
+[#32]: https://github.com/zombiezen/graphql-server/issues/32
 [go-fuzz]: https://github.com/dvyukov/go-fuzz
 
 ## [0.3.1][]

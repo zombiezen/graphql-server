@@ -22,7 +22,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
+	"strings"
+	"unicode/utf16"
 
 	"golang.org/x/xerrors"
 	"zombiezen.com/go/graphql-server/internal/gqlang"
@@ -43,6 +46,12 @@ type Field struct {
 	Key string
 	// Value is the field's value.
 	Value Value
+}
+
+func (f Field) encodeGraphQL(sb *strings.Builder, indent int) {
+	sb.WriteString(f.Key)
+	sb.WriteString(": ")
+	f.Value.encodeGraphQL(sb, indent)
 }
 
 // valueFromGo converts a Go value into a GraphQL value. The selection set is
@@ -492,5 +501,105 @@ func (v Value) MarshalJSON() ([]byte, error) {
 		return buf, nil
 	default:
 		panic("unknown type in Value.typ")
+	}
+}
+
+// String serializes the value to GraphQL literal syntax.
+func (v Value) String() string {
+	sb := new(strings.Builder)
+	v.encodeGraphQL(sb, 0)
+	return sb.String()
+}
+
+func (v Value) encodeGraphQL(sb *strings.Builder, indent int) {
+	switch val := v.val.(type) {
+	case nil:
+		sb.WriteString("null")
+	case string:
+		if typ := v.typ.toNullable(); typ == booleanType || typ == intType || typ == floatType {
+			// Can use as GraphQL literal.
+			sb.WriteString(val)
+			return
+		}
+		sb.WriteByte('"')
+		for _, r := range val {
+			switch {
+			case r == '"' || r == '\\':
+				// Needs preceding backslash.
+				sb.WriteByte('\\')
+				sb.WriteByte(byte(r))
+			case 32 <= r && r <= 126:
+				// Printable.
+				sb.WriteByte(byte(r))
+			case r == '\n':
+				sb.WriteString("\\n")
+			case r == '\t':
+				sb.WriteString("\\t")
+			case r == '\r':
+				sb.WriteString("\\r")
+			default:
+				if r1, r2 := utf16.EncodeRune(r); r1 != 0xfffd && r2 != 0xfffd {
+					fmt.Fprintf(sb, "\\u%04x\\u%04x", r1, r2)
+				} else {
+					fmt.Fprintf(sb, "\\u%04x", r)
+				}
+			}
+		}
+		sb.WriteByte('"')
+	case []Value:
+		sb.WriteByte('[')
+		for i, elem := range val {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			elem.encodeGraphQL(sb, indent)
+		}
+		sb.WriteByte(']')
+	case map[string]Value:
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		sb.WriteByte('{')
+		for i, k := range keys {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteByte('\n')
+			writeIndent(sb, indent+1)
+			f := Field{Key: k, Value: val[k]}
+			f.encodeGraphQL(sb, indent+1)
+		}
+		if len(val) > 0 {
+			sb.WriteByte('\n')
+			writeIndent(sb, indent)
+		}
+		sb.WriteByte('}')
+	case []Field:
+		// This is an output object, so no direct GraphQL syntax, but input object
+		// syntax is good enough.
+		sb.WriteByte('{')
+		for i, f := range val {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteByte('\n')
+			writeIndent(sb, indent+1)
+			f.encodeGraphQL(sb, indent+1)
+		}
+		if len(val) > 0 {
+			sb.WriteByte('\n')
+			writeIndent(sb, indent)
+		}
+		sb.WriteByte('}')
+	default:
+		panic("unknown type in Value.typ")
+	}
+}
+
+func writeIndent(sb *strings.Builder, indent int) {
+	for i := 0; i < indent; i++ {
+		sb.WriteByte('\t')
 	}
 }

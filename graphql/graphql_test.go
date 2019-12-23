@@ -1568,6 +1568,9 @@ func testObjectValue() Value {
 	response := srv.Execute(context.Background(), Request{
 		Query: `{ myInt, myString }`,
 	})
+	if len(response.Errors) > 0 {
+		panic(response.Errors[0])
+	}
 	return response.Data
 }
 
@@ -1592,5 +1595,8 @@ func testIDObjectValue() Value {
 	response := srv.Execute(context.Background(), Request{
 		Query: `{ myStringId, myInt64Id }`,
 	})
+	if len(response.Errors) > 0 {
+		panic(response.Errors[0])
+	}
 	return response.Data
 }

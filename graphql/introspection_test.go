@@ -146,6 +146,75 @@ func TestIntrospection(t *testing.T) {
 			},
 		},
 		{
+			// https://graphql.github.io/graphql-spec/June2018/#example-00283
+			name: "Type/DefaultValues",
+			schema: `
+				type Query {
+					snafu(bar: Int): Int
+					baz(quux: Int = 42): Int
+				}
+
+				input Input {
+					bar: Int
+					quux: Int = 42
+				}
+			`,
+			request: Request{Query: `{
+				query: __type(name: "Query") {
+					fields {
+						name
+						args {
+							name
+							defaultValue
+						}
+					}
+				}
+
+				input: __type(name: "Input") {
+					inputFields {
+						name
+						defaultValue
+					}
+				}
+			}`},
+			want: []fieldExpectations{
+				{key: "query", value: valueExpectations{object: []fieldExpectations{
+					{key: "fields", value: valueExpectations{list: []valueExpectations{
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "snafu"}},
+							{key: "args", value: valueExpectations{list: []valueExpectations{
+								{object: []fieldExpectations{
+									{key: "name", value: valueExpectations{scalar: "bar"}},
+									{key: "defaultValue", value: valueExpectations{null: true}},
+								}},
+							}}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "baz"}},
+							{key: "args", value: valueExpectations{list: []valueExpectations{
+								{object: []fieldExpectations{
+									{key: "name", value: valueExpectations{scalar: "quux"}},
+									{key: "defaultValue", value: valueExpectations{scalar: "42"}},
+								}},
+							}}},
+						}},
+					}}},
+				}}},
+				{key: "input", value: valueExpectations{object: []fieldExpectations{
+					{key: "inputFields", value: valueExpectations{list: []valueExpectations{
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "bar"}},
+							{key: "defaultValue", value: valueExpectations{null: true}},
+						}},
+						{object: []fieldExpectations{
+							{key: "name", value: valueExpectations{scalar: "quux"}},
+							{key: "defaultValue", value: valueExpectations{scalar: "42"}},
+						}},
+					}}},
+				}}},
+			},
+		},
+		{
 			name: "Type/IgnoreDescriptions",
 			schema: `
 				"""Hello, World!"""
@@ -532,6 +601,14 @@ func TestIntrospection(t *testing.T) {
 type introspectionQuery struct {
 	Foo      string
 	MyObject *introspectionMyType
+}
+
+func (introspectionQuery) Snafu() int {
+	return 0
+}
+
+func (introspectionQuery) Baz() int {
+	return 0
 }
 
 type introspectionMyType struct {

@@ -454,11 +454,8 @@ type inputValueDefinition struct {
 
 	// defaultValue.typ will always be set. Most of the time, defaultValue
 	// is valid value of the type. However, if the type is non-nullable and
-	// does not have a default, the value will be typed null.
-	//
-	// This is the only way to distinguish not having a default from having a
-	// null default, but it's the only situation in which not having a default is
-	// relevant in the GraphQL specification.
+	// does not have a default, the value will be typed null: this indicates a
+	// required argument or input field.
 	defaultValue Value
 }
 
@@ -474,11 +471,16 @@ func (ivd inputValueDefinition) Type() *gqlType {
 	return ivd.defaultValue.typ
 }
 
+// DefaultValue returns the default value in GraphQL syntax.
+// https://graphql.github.io/graphql-spec/June2018/#sec-The-__InputValue-Type
 func (ivd inputValueDefinition) DefaultValue() NullString {
-	// TODO(someday): Return the default value in GraphQL syntax.
-	// The spec says this "may return" the default value.
-	// https://graphql.github.io/graphql-spec/June2018/#sec-The-__InputValue-Type
-	return NullString{}
+	if ivd.defaultValue.IsNull() {
+		return NullString{}
+	}
+	return NullString{
+		S:     ivd.defaultValue.String(),
+		Valid: true,
+	}
 }
 
 type inputValueDefinitionList []inputValueDefinition
