@@ -54,6 +54,21 @@ func (f Field) encodeGraphQL(sb *strings.Builder, indent int) {
 	f.Value.encodeGraphQL(sb, indent)
 }
 
+// A type implementing FieldResolver controls how its fields are dispatched.
+// If present, Server will prefer to use the ResolveField method to execute
+// fields on an object. ResolveField must be safe to call from multiple
+// goroutines.
+type FieldResolver interface {
+	ResolveField(ctx context.Context, req FieldRequest) (interface{}, error)
+}
+
+// FieldRequest holds the parameters for a field resolution.
+type FieldRequest struct {
+	Name      string
+	Args      map[string]Value
+	Selection *SelectionSet
+}
+
 // valueFromGo converts a Go value into a GraphQL value. The selection set is
 // ignored for scalars.
 func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Value, goValue reflect.Value, typ *gqlType, sel *SelectionSet) (Value, []error) {
@@ -121,7 +136,7 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 			case typeByNameFieldName:
 				fval, ferrs = schema.introspectType(ctx, variables, f)
 			default:
-				fval, ferrs = schema.readField(ctx, variables, goValue, desc.fields[f.name], typ.obj.field(f.name).typ, f)
+				fval, ferrs = schema.readField(ctx, variables, goValue, desc, typ.obj.field(f.name).typ, f)
 			}
 			gqlFields = append(gqlFields, Field{Key: f.key, Value: fval})
 			errs = append(errs, ferrs...)
@@ -238,8 +253,8 @@ func coerceInputValue(s *selectionSetScope, typ *gqlType, inputValue *gqlang.Inp
 	}
 }
 
-func (schema *Schema) readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, fdesc fieldDescriptor, typ *gqlType, f *SelectedField) (Value, []error) {
-	result, err := fdesc.read(ctx, valueForAssertions(goValue), f.args, f.sub)
+func (schema *Schema) readField(ctx context.Context, variables map[string]Value, goValue reflect.Value, desc *typeDescriptor, typ *gqlType, f *SelectedField) (Value, []error) {
+	result, err := desc.read(ctx, valueForAssertions(goValue), f.toRequest())
 	if err != nil {
 		return Value{typ: typ}, []error{wrapFieldError(f.key, f.loc, err)}
 	}
@@ -252,13 +267,6 @@ func (schema *Schema) readField(ctx context.Context, variables map[string]Value,
 	}
 	return v, nil
 }
-
-var (
-	contextGoType      = reflect.TypeOf(new(context.Context)).Elem()
-	argsGoType         = reflect.TypeOf(new(map[string]Value)).Elem()
-	selectionSetGoType = reflect.TypeOf(new(*SelectionSet)).Elem()
-	errorGoType        = reflect.TypeOf(new(error)).Elem()
-)
 
 func scalarFromGo(goValue reflect.Value, typ *gqlType) (Value, error) {
 	goValue = unwrapPointer(goValue)

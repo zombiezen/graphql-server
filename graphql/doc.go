@@ -22,10 +22,15 @@ package follows the specification laid out at https://graphql.github.io/graphql-
 For the common case where you are serving GraphQL over HTTP, see the graphqlhttp
 package in this module.
 
-Methods
+Field Resolution
 
-Field methods must have the following signature (with square brackets
-indicating optional elements):
+When executing a request, the server will first check the object to see whether
+it implements FieldResolver. If so, the ResolveField method will be called for
+any field on the object.
+
+Next, the server checks for a method with the same name as the field. Field
+methods must have the following signature (with square brackets indicating
+optional elements):
 
 	func (foo *Foo) Bar([ctx context.Context,] [args map[string]graphql.Value,] [sel *graphql.SelectionSet]) (ResultType[, error])
 
@@ -36,6 +41,10 @@ objects type and permits the method to peek into what fields will be evaluated
 on its return value. This is useful for avoiding querying for data that won't
 be used in the response. The method must be exported, but otherwise methods are
 matched with fields ignoring case.
+
+Lastly, if the object is a Go struct and the field takes no arguments, then the
+server will read the value from an exported struct field with the same name
+ignoring case.
 
 Scalars
 

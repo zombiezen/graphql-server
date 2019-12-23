@@ -459,6 +459,13 @@ func (schema *Schema) typeDescriptorLocked(key typeKey) *typeDescriptor {
 	if desc != nil {
 		return desc
 	}
+	if key.goType.AssignableTo(fieldResolverType) {
+		desc = &typeDescriptor{
+			hasResolveField: true,
+		}
+		schema.goTypes[key] = desc
+		return desc
+	}
 	desc = &typeDescriptor{
 		fields: make(map[string]fieldDescriptor),
 	}
@@ -606,8 +613,29 @@ type typeKey struct {
 }
 
 type typeDescriptor struct {
-	fields map[string]fieldDescriptor
-	err    error
+	fields          map[string]fieldDescriptor
+	hasResolveField bool
+	err             error
+}
+
+func (desc *typeDescriptor) read(ctx context.Context, recv reflect.Value, req FieldRequest) (reflect.Value, error) {
+	if desc.err != nil {
+		return reflect.Value{}, desc.err
+	}
+	if desc.hasResolveField {
+		val, err := interfaceValueForAssertions(recv).(FieldResolver).ResolveField(ctx, req)
+		if err != nil {
+			// Intentionally making the returned error opaque to avoid interference in
+			// toResponseError.
+			return reflect.Value{}, xerrors.Errorf("server error: %v", err)
+		}
+		return reflect.ValueOf(val), nil
+	}
+	fdesc, ok := desc.fields[req.Name]
+	if !ok {
+		return reflect.Value{}, xerrors.Errorf("internal server error: no field descriptor for %q", req.Name)
+	}
+	return fdesc.read(ctx, recv, req)
 }
 
 type fieldDescriptor struct {
@@ -616,7 +644,7 @@ type fieldDescriptor struct {
 	desc        *typeDescriptor
 }
 
-func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, args map[string]Value, sel *SelectionSet) (reflect.Value, error) {
+func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, req FieldRequest) (reflect.Value, error) {
 	if fdesc.fieldIndex != -1 {
 		recv = unwrapPointer(recv)
 		if !recv.IsValid() {
@@ -632,10 +660,10 @@ func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, args 
 		callArgs = append(callArgs, reflect.ValueOf(ctx))
 	}
 	if len(callArgs) < numIn && mtype.In(len(callArgs)) == argsGoType {
-		callArgs = append(callArgs, reflect.ValueOf(args))
+		callArgs = append(callArgs, reflect.ValueOf(req.Args))
 	}
 	if len(callArgs) < numIn && mtype.In(len(callArgs)) == selectionSetGoType {
-		callArgs = append(callArgs, reflect.ValueOf(sel))
+		callArgs = append(callArgs, reflect.ValueOf(req.Selection))
 	}
 	if len(callArgs) != numIn {
 		panic("unexpected method parameters; bug in validateFieldMethodSignature?")
@@ -657,6 +685,14 @@ func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, args 
 		panic("unexpected method return signature; bug in validateFieldMethodSignature?")
 	}
 }
+
+var (
+	contextGoType      = reflect.TypeOf(new(context.Context)).Elem()
+	fieldResolverType  = reflect.TypeOf(new(FieldResolver)).Elem()
+	argsGoType         = reflect.TypeOf(new(map[string]Value)).Elem()
+	selectionSetGoType = reflect.TypeOf(new(*SelectionSet)).Elem()
+	errorGoType        = reflect.TypeOf(new(error)).Elem()
+)
 
 func toLower(s string) string {
 	sb := new(strings.Builder)

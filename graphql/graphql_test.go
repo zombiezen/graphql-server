@@ -1301,6 +1301,57 @@ func (s testErrorScalar) MarshalText() ([]byte, error) {
 	return []byte("ok"), nil
 }
 
+func TestFieldResolver(t *testing.T) {
+	t.Parallel()
+
+	schema, err := ParseSchema(`
+		type Query {
+			foo(arg: String!): String!
+		}
+	`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	resolver := fieldResolverFunc(func(ctx context.Context, req FieldRequest) (interface{}, error) {
+		called = true
+		if want := "foo"; req.Name != want {
+			t.Errorf("req.Name = %q; want %q", req.Name, want)
+		}
+		if got, want := req.Args["arg"].Scalar(), "bar"; got != want {
+			t.Errorf("req.Args[\"arg\"].Scalar() = %q; want %q", got, want)
+		}
+		return "baz", nil
+	})
+	srv, err := NewServer(schema, resolver, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	resp := srv.Execute(ctx, Request{
+		Query: `{ foo(arg: "bar") }`,
+	})
+	for _, e := range resp.Errors {
+		t.Errorf("Error: %s", e.Message)
+	}
+	if !called {
+		t.Error("ResolveField method not called")
+	}
+	if got, want := resp.Data.ValueFor("foo").Scalar(), "baz"; got != want {
+		t.Errorf("data.foo = %q; want %q", got, want)
+	}
+}
+
+type fieldResolverFunc func(context.Context, FieldRequest) (interface{}, error)
+
+func (f fieldResolverFunc) ResolveField(ctx context.Context, req FieldRequest) (interface{}, error) {
+	return f(ctx, req)
+}
+
+func (f fieldResolverFunc) Foo() (string, error) {
+	return "WRONG", xerrors.New("this method should never be called")
+}
+
 func newString(s string) *string { return &s }
 func newBool(b bool) *bool       { return &b }
 func newInt(i int) *int          { return &i }

@@ -296,6 +296,14 @@ type SelectedField struct {
 	sub *SelectionSet
 }
 
+func (f *SelectedField) toRequest() FieldRequest {
+	return FieldRequest{
+		Name:      f.name,
+		Args:      f.args,
+		Selection: f.sub,
+	}
+}
+
 // Arg returns the argument with the given name or a null Value if the argument
 // doesn't exist.
 func (f *SelectedField) Arg(name string) Value {

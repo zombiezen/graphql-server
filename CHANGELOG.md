@@ -21,7 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -  `*SelectionSet.Has` and `*SelectionSet.OnlyUses` now permit dotted field
    syntax to more conveniently check nested fields. ([#31][])
+-  If an object implements the new `FieldResolver` interface, then the
+   `ResolveField` will be called to dispatch all field executions. This makes it
+   easier to implement stub types or integrate custom data sources with the
+   server. ([#30][])
 
+[#30]: https://github.com/zombiezen/graphql-server/issues/30
 [#31]: https://github.com/zombiezen/graphql-server/issues/31
 
 ### Fixed
