@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/google/go-cmp/cmp"
 	"zombiezen.com/go/graphql-server/graphql"
 )
 
@@ -76,6 +77,35 @@ func ExampleValidatedQuery() {
 	fmt.Println(response.Data.ValueFor("genericGreeting").Scalar())
 	// Output:
 	// Hiya!
+}
+
+// GoValue is often useful for testing with go-cmp.
+func ExampleValue_GoValue_gocmp() {
+	ctx := context.Background()
+
+	// Set up a server and execute a query.
+	server := newServer()
+	response := server.Execute(ctx, graphql.Request{
+		Query: `{ genericGreeting, greet(subject: "World") }`,
+	})
+	if len(response.Errors) > 0 {
+		log.Fatal(response.Errors)
+	}
+
+	// GoValue can produce a map that is easy to compare with an expected value
+	// using go-cmp.
+	got := response.Data.GoValue()
+	want := map[string]interface{}{
+		"genericGreeting": "Hiya!",
+		"greet":           "Hello, World!",
+	}
+	if diff := cmp.Diff(want, got); diff == "" {
+		fmt.Println("Got the expected greeting")
+	} else {
+		fmt.Printf("data (-want +got):\n%s", diff)
+	}
+	// Output:
+	// Got the expected greeting
 }
 
 func newServer() *graphql.Server {
