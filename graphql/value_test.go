@@ -36,7 +36,7 @@ func TestValue_String(t *testing.T) {
 		},
 		{
 			name:  "Int",
-			value: testObjectValue().ValueFor("myInt"),
+			value: testIntValue(42),
 			want:  "42",
 		},
 		{
@@ -105,64 +105,52 @@ func TestValue_String(t *testing.T) {
 	}
 }
 
-func testStringValue(s string) Value {
+func testValue(val interface{}, typ string) Value {
 	schema, err := ParseSchema(`
 		type Query {
-			myString: String!
+			myValue: `+typ+`
+		}
+
+		enum MyEnum {
+			FOO
+			BAR
+			BAZ
 		}
 	`, nil)
 	if err != nil {
 		panic(err)
 	}
-	queryObject := &testQueryStruct{
-		MyString: NullString{S: s, Valid: true},
-	}
-	srv, err := NewServer(schema, queryObject, nil)
+	resolver := fieldResolverFunc(func(_ context.Context, _ FieldRequest) (interface{}, error) {
+		return val, nil
+	})
+	srv, err := NewServer(schema, resolver, nil)
 	if err != nil {
 		panic(err)
 	}
 	response := srv.Execute(context.Background(), Request{
-		Query: `{ myString }`,
+		Query: `{ myValue }`,
 	})
 	if len(response.Errors) > 0 {
 		panic(response.Errors[0])
 	}
-	return response.Data.ValueFor("myString")
+	return response.Data.ValueFor("myValue")
+}
+
+func testStringValue(s string) Value {
+	return testValue(s, "String!")
+}
+
+func testIntValue(i int32) Value {
+	return testValue(i, "Int!")
 }
 
 func testStringListValue(list []string) Value {
-	type query struct {
-		MyStringList []string
-	}
-
-	schema, err := ParseSchema(`
-		type Query {
-			myStringList: [String!]!
-		}
-	`, nil)
-	if err != nil {
-		panic(err)
-	}
-	srv, err := NewServer(schema, &query{list}, nil)
-	if err != nil {
-		panic(err)
-	}
-	response := srv.Execute(context.Background(), Request{
-		Query: `{ myStringList }`,
-	})
-	if len(response.Errors) > 0 {
-		panic(response.Errors[0])
-	}
-	return response.Data.ValueFor("myStringList")
+	return testValue(list, "[String!]!")
 }
 
 func testInputObjectValue(input Input) Value {
 	schema, err := ParseSchema(`
 		type Query {
-			myString: String!
-		}
-
-		type Mutation {
 			capture(obj: Input!): Boolean!
 		}
 
@@ -174,16 +162,17 @@ func testInputObjectValue(input Input) Value {
 	if err != nil {
 		panic(err)
 	}
-	queryObject := &testQueryStruct{
-		MyString: NullString{S: "foo", Valid: true},
-	}
-	mutationObject := new(testInputObjectCapture)
-	srv, err := NewServer(schema, queryObject, mutationObject)
+	var obj Value
+	resolver := fieldResolverFunc(func(_ context.Context, req FieldRequest) (interface{}, error) {
+		obj = req.Args["obj"]
+		return true, nil
+	})
+	srv, err := NewServer(schema, resolver, nil)
 	if err != nil {
 		panic(err)
 	}
 	response := srv.Execute(context.Background(), Request{
-		Query: `mutation ($obj: Input!) { capture(obj: $obj) }`,
+		Query: `query ($obj: Input!) { capture(obj: $obj) }`,
 		Variables: map[string]Input{
 			"obj": input,
 		},
@@ -191,14 +180,5 @@ func testInputObjectValue(input Input) Value {
 	if len(response.Errors) > 0 {
 		panic(response.Errors[0])
 	}
-	return mutationObject.obj
-}
-
-type testInputObjectCapture struct {
-	obj Value
-}
-
-func (capture *testInputObjectCapture) Capture(args map[string]Value) bool {
-	capture.obj = args["obj"]
-	return true
+	return obj
 }

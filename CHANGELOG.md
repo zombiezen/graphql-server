@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    easier to get to a productive application quickly.
 -  `SelectionSet` has a new method `HasAny` to check for multiple fields at
    once. ([#28][])
+-  `Value` has a new method `Convert` that converts GraphQL values into Go
+   values.
 
 [#28]: https://github.com/zombiezen/graphql-server/issues/28
 [graphql-go-app]: https://github.com/zombiezen/graphql-go-app

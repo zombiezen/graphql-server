@@ -459,7 +459,7 @@ func (schema *Schema) typeDescriptorLocked(key typeKey) *typeDescriptor {
 	if desc != nil {
 		return desc
 	}
-	if key.goType.AssignableTo(fieldResolverType) {
+	if key.goType.AssignableTo(fieldResolverGoType) {
 		desc = &typeDescriptor{
 			hasResolveField: true,
 		}
@@ -577,7 +577,7 @@ func validateFieldMethodSignature(mtype reflect.Type, passSel bool) error {
 	if argIdx < numIn && mtype.In(argIdx) == contextGoType {
 		argIdx++
 	}
-	if argIdx < numIn && mtype.In(argIdx) == argsGoType {
+	if argIdx < numIn && mtype.In(argIdx) == valueMapGoType {
 		argIdx++
 	}
 	if passSel {
@@ -659,7 +659,7 @@ func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, req F
 	if len(callArgs) < numIn && mtype.In(len(callArgs)) == contextGoType {
 		callArgs = append(callArgs, reflect.ValueOf(ctx))
 	}
-	if len(callArgs) < numIn && mtype.In(len(callArgs)) == argsGoType {
+	if len(callArgs) < numIn && mtype.In(len(callArgs)) == valueMapGoType {
 		callArgs = append(callArgs, reflect.ValueOf(req.Args))
 	}
 	if len(callArgs) < numIn && mtype.In(len(callArgs)) == selectionSetGoType {
@@ -687,11 +687,11 @@ func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, req F
 }
 
 var (
-	contextGoType      = reflect.TypeOf(new(context.Context)).Elem()
-	fieldResolverType  = reflect.TypeOf(new(FieldResolver)).Elem()
-	argsGoType         = reflect.TypeOf(new(map[string]Value)).Elem()
-	selectionSetGoType = reflect.TypeOf(new(*SelectionSet)).Elem()
-	errorGoType        = reflect.TypeOf(new(error)).Elem()
+	contextGoType       = reflect.TypeOf(new(context.Context)).Elem()
+	fieldResolverGoType = reflect.TypeOf(new(FieldResolver)).Elem()
+	valueMapGoType      = reflect.TypeOf(new(map[string]Value)).Elem()
+	selectionSetGoType  = reflect.TypeOf(new(*SelectionSet)).Elem()
+	errorGoType         = reflect.TypeOf(new(error)).Elem()
 )
 
 func toLower(s string) string {
