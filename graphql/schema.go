@@ -543,13 +543,13 @@ func (schema *Schema) typeDescriptorLocked(key typeKey) *typeDescriptor {
 		}
 		// TODO(someday): Check field type for scalars.
 		if field.typ.isObject() {
-			fdesc.desc = schema.typeDescriptorLocked(typeKey{
+			err := schema.typeDescriptorLocked(typeKey{
 				goType:  innermostPointerType(fieldGoType),
 				gqlType: field.typ.obj,
-			})
-			if fdesc.desc.err != nil {
+			}).err
+			if err != nil {
 				*desc = typeDescriptor{
-					err: xerrors.Errorf("field %s: %w", field.name, fdesc.desc.err),
+					err: xerrors.Errorf("field %s: %w", field.name, err),
 				}
 				return desc
 			}
@@ -641,7 +641,6 @@ func (desc *typeDescriptor) read(ctx context.Context, recv reflect.Value, req Fi
 type fieldDescriptor struct {
 	fieldIndex  int
 	methodIndex int
-	desc        *typeDescriptor
 }
 
 func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, req FieldRequest) (reflect.Value, error) {
