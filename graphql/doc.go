@@ -32,15 +32,17 @@ Next, the server checks for a method with the same name as the field. Field
 methods must have the following signature (with square brackets indicating
 optional elements):
 
-	func (foo *Foo) Bar([ctx context.Context,] [args map[string]graphql.Value,] [sel *graphql.SelectionSet]) (ResultType[, error])
+	func (foo *Foo) Bar([ctx context.Context,] [args ArgsType,] [sel *graphql.SelectionSet]) (ResultType[, error])
 
 The ctx parameter will have a Context deriving from the one passed to Execute.
-The args parameter will be a map filled with the arguments passed to the field.
-The sel parameter is only passed to fields that return an object or list of
-objects type and permits the method to peek into what fields will be evaluated
-on its return value. This is useful for avoiding querying for data that won't
-be used in the response. The method must be exported, but otherwise methods are
-matched with fields ignoring case.
+The args parameter can be of type map[string]graphql.Value, S, or *S, where S is
+a struct type with fields for all of the arguments. See ConvertValueMap for a
+description of how this parameter is derived from the field arguments. The sel
+parameter is only passed to fields that return an object or list of objects type
+and permits the method to peek into what fields will be evaluated on its return
+value. This is useful for avoiding querying for data that won't be used in the
+response. The method must be exported, but otherwise methods are matched with
+fields ignoring case.
 
 Lastly, if the object is a Go struct and the field takes no arguments, then the
 server will read the value from an exported struct field with the same name

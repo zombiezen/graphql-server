@@ -62,6 +62,8 @@ func TestExecute(t *testing.T) {
 			requiredArg(echo: String!): String!
 			requiredArgWithDefault(echo: String! = "xyzzy"): String!
 			enumArg(direction: Direction!): String!
+			convertedArgsMethod(echo: String): String!
+			convertedPointerArgsMethod(echo: String): String!
 
 			nilErrorMethod: String
 			errorMethod: String
@@ -416,6 +418,30 @@ func TestExecute(t *testing.T) {
 			},
 			wantErrors: []*ResponseError{
 				{},
+			},
+		},
+		{
+			name: "ConvertedArgsMethod/Value",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `{ convertedArgsMethod(echo: "ohai") }`,
+			},
+			want: []fieldExpectations{
+				{key: "convertedArgsMethod", value: valueExpectations{scalar: "ohaiohai"}},
+			},
+		},
+		{
+			name: "ConvertedArgsMethod/Pointer",
+			queryObject: func(e errorfer) interface{} {
+				return new(testQueryStruct)
+			},
+			request: Request{
+				Query: `{ convertedPointerArgsMethod(echo: "ohai") }`,
+			},
+			want: []fieldExpectations{
+				{key: "convertedPointerArgsMethod", value: valueExpectations{scalar: "ohaiohai"}},
 			},
 		},
 		{
@@ -1249,6 +1275,18 @@ func (q *testQueryStruct) RequiredArgWithDefault(args map[string]Value) string {
 
 func (q *testQueryStruct) EnumArg(args map[string]Value) string {
 	return args["direction"].Scalar()
+}
+
+type convertedArgs struct {
+	Echo string
+}
+
+func (q *testQueryStruct) ConvertedArgsMethod(args convertedArgs) string {
+	return args.Echo + args.Echo
+}
+
+func (q *testQueryStruct) ConvertedPointerArgsMethod(args *convertedArgs) string {
+	return args.Echo + args.Echo
 }
 
 func (q *testQueryStruct) NilErrorMethod() (string, error) {

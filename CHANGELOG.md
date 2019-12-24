@@ -14,13 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  `SelectionSet` has a new method `HasAny` to check for multiple fields at
    once. ([#28][])
 -  `Value` has a new method `Convert` that converts GraphQL values into Go
-   values.
+   values. A new function `ConvertValueMap` converts a `map[string]graphql.Value`
+   into a Go struct.
 
 [#28]: https://github.com/zombiezen/graphql-server/issues/28
 [graphql-go-app]: https://github.com/zombiezen/graphql-go-app
 
 ### Changed
 
+-  Field methods may now use custom structs in place of `map[string]graphql.Value`
+   to read arguments. `Server` will automatically call `ConvertValueMap` to
+   populate the struct before the field method is called. ([#18][])
 -  `*SelectionSet.Has` and `*SelectionSet.OnlyUses` now permit dotted field
    syntax to more conveniently check nested fields. ([#31][])
 -  If an object implements the new `FieldResolver` interface, then the
@@ -28,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    easier to implement stub types or integrate custom data sources with the
    server. ([#30][])
 
+[#18]: https://github.com/zombiezen/graphql-server/issues/18
 [#30]: https://github.com/zombiezen/graphql-server/issues/30
 [#31]: https://github.com/zombiezen/graphql-server/issues/31
 

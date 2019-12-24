@@ -53,7 +53,10 @@ import (
 func (v Value) Convert(dst interface{}) error {
 	dstValue := reflect.ValueOf(dst)
 	if dstValue.Kind() != reflect.Ptr {
-		return xerrors.Errorf("convert GraphQL value: argument not a pointer")
+		return xerrors.Errorf("convert GraphQL value: argument not a pointer (got %v)", dstValue.Type())
+	}
+	if dstValue.IsNil() {
+		return xerrors.Errorf("convert GraphQL value: argument is nil")
 	}
 	if err := v.convert(dstValue.Elem()); err != nil {
 		return xerrors.Errorf("convert GraphQL value: %w", err)
@@ -81,9 +84,6 @@ func (v Value) convert(dst reflect.Value) error {
 		goType = elemType
 		kind = elemType.Kind()
 	}
-	convertErr := func() error {
-		return xerrors.Errorf("cannot assign value of type %v to Go type %v", v.typ, goType)
-	}
 	switch val := v.val.(type) {
 	case string:
 		if u, ok := interfaceValueForAssertions(dst).(encoding.TextUnmarshaler); ok {
@@ -94,7 +94,7 @@ func (v Value) convert(dst reflect.Value) error {
 			return nil
 		}
 		if v.typ.isEnum() {
-			return convertErr()
+			return newConversionError(goType, v.typ)
 		}
 		valueErr := func() error {
 			return xerrors.Errorf("cannot convert %q to %v", val, goType)
@@ -122,11 +122,11 @@ func (v Value) convert(dst reflect.Value) error {
 				return valueErr()
 			}
 		default:
-			return convertErr()
+			return newConversionError(goType, v.typ)
 		}
 	case []Value:
 		if kind != reflect.Slice {
-			return convertErr()
+			return newConversionError(goType, v.typ)
 		}
 		dst.Set(reflect.MakeSlice(goType, 0, len(val)))
 		for dst.Len() < len(val) {
@@ -147,7 +147,7 @@ func (v Value) convert(dst reflect.Value) error {
 			return nil
 		}
 		if kind != reflect.Struct {
-			return convertErr()
+			return newConversionError(goType, v.typ)
 		}
 		for _, f := range val {
 			fieldIndex, err := findConvertField(goType, f.Key)
@@ -155,34 +155,74 @@ func (v Value) convert(dst reflect.Value) error {
 				return err
 			}
 			if err := f.Value.convert(dst.Field(fieldIndex)); err != nil {
-				return xerrors.Errorf("field %s: %w", f.Key)
+				return xerrors.Errorf("field %s: %w", f.Key, err)
 			}
 		}
 	case map[string]Value:
-		if goType == valueMapGoType {
-			m := make(map[string]Value, len(val))
-			for k, v := range val {
-				m[k] = v
-			}
-			dst.Set(reflect.ValueOf(m))
-			return nil
-		}
-		if kind != reflect.Struct {
-			return convertErr()
-		}
-		for k, v := range val {
-			fieldIndex, err := findConvertField(goType, k)
-			if err != nil {
-				return err
-			}
-			if err := v.convert(dst.Field(fieldIndex)); err != nil {
-				return xerrors.Errorf("field %s: %w", k)
-			}
+		if err := convertValueMap(dst, val, v.typ); err != nil {
+			return err
 		}
 	default:
 		panic("unknown type in Value")
 	}
 	return nil
+}
+
+// ConvertValueMap converts a map of GraphQL values into a Go value.
+// dst must be a non-nil pointer to a struct with matching fields or a
+// map[string]graphql.Value.
+//
+// During conversion to a struct, the values in the map will be converted
+// (as if by Convert) into the struct field with the same name, ignoring case.
+// An error will be returned if a key in the map does not match exactly one
+// field in the Go struct.
+//
+// Conversion to a map[string]graphql.Value will simply copy the map.
+func ConvertValueMap(dst interface{}, m map[string]Value) error {
+	dstValue := reflect.ValueOf(dst)
+	if dstValue.Kind() != reflect.Ptr {
+		return xerrors.Errorf("convert GraphQL value map: argument not a pointer (got %v)", dstValue.Type())
+	}
+	if dstValue.IsNil() {
+		return xerrors.Errorf("convert GraphQL value map: argument is nil")
+	}
+	if err := convertValueMap(dstValue.Elem(), m, nil); err != nil {
+		return xerrors.Errorf("convert GraphQL value map: %w", err)
+	}
+	return nil
+}
+
+func convertValueMap(dst reflect.Value, valMap map[string]Value, graphqlType *gqlType) error {
+	goType := dst.Type()
+	if goType == valueMapGoType {
+		m := make(map[string]Value, len(valMap))
+		for k, v := range valMap {
+			m[k] = v
+		}
+		dst.Set(reflect.ValueOf(m))
+		return nil
+	}
+	if goType.Kind() != reflect.Struct {
+		if graphqlType == nil {
+			return xerrors.Errorf("cannot convert into %v", goType)
+		}
+		return newConversionError(goType, graphqlType)
+	}
+	for k, v := range valMap {
+		fieldIndex, err := findConvertField(goType, k)
+		if err != nil {
+			return err
+		}
+		if err := v.convert(dst.Field(fieldIndex)); err != nil {
+			return xerrors.Errorf("field %s: %w", k, err)
+		}
+	}
+	return nil
+}
+
+func canConvertFromValueMap(t reflect.Type) bool {
+	k := t.Kind()
+	return t == valueMapGoType || k == reflect.Struct || (k == reflect.Ptr && t.Elem().Kind() == reflect.Struct)
 }
 
 // findConvertField returns the field index of a Go struct that's suitable for
@@ -209,4 +249,8 @@ func findConvertField(goType reflect.Type, name string) (int, error) {
 		return -1, xerrors.Errorf("field %s: %v has multiple matching fields", name, goType)
 	}
 	return index, nil
+}
+
+func newConversionError(goType reflect.Type, graphqlType *gqlType) error {
+	return xerrors.Errorf("cannot assign value of type %v to Go type %v", graphqlType, goType)
 }

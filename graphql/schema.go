@@ -496,7 +496,9 @@ func (schema *Schema) typeDescriptorLocked(key typeKey) *typeDescriptor {
 			if toLower(meth.Name) == lowerFieldName {
 				numMatches++
 				fdesc.methodIndex = i
-				if err := validateFieldMethodSignature(meth.Type, passSel); err != nil {
+				var err error
+				fdesc.methodFlags, fdesc.methodArgsType, err = validateFieldMethodSignature(meth.Type, passSel)
+				if err != nil {
 					*desc = typeDescriptor{
 						err: xerrors.Errorf("can't use method %v.%s for field %s.%s: %w",
 							key.goType, meth.Name, key.gqlType.name, field.name, err),
@@ -571,39 +573,47 @@ func innermostPointerType(t reflect.Type) reflect.Type {
 	return tprev
 }
 
-func validateFieldMethodSignature(mtype reflect.Type, passSel bool) error {
+func validateFieldMethodSignature(mtype reflect.Type, passSel bool) (fieldMethodFlags, reflect.Type, error) {
 	numIn := mtype.NumIn()
 	argIdx := 1 // skip past receiver
+	var flags fieldMethodFlags
+	var argsType reflect.Type
 	if argIdx < numIn && mtype.In(argIdx) == contextGoType {
 		argIdx++
+		flags |= contextFieldMethodArg
 	}
-	if argIdx < numIn && mtype.In(argIdx) == valueMapGoType {
-		argIdx++
+	if argIdx < numIn {
+		if a := mtype.In(argIdx); a != contextGoType && a != selectionSetGoType && canConvertFromValueMap(a) {
+			argsType = a
+			argIdx++
+		}
 	}
 	if passSel {
 		if argIdx < numIn && mtype.In(argIdx) == selectionSetGoType {
+			flags |= selectionSetFieldMethodArg
 			argIdx++
 		}
 	}
 	if argIdx != numIn {
-		return xerrors.New("wrong parameter signature")
+		return 0, nil, xerrors.New("wrong parameter signature")
 	}
 	switch mtype.NumOut() {
 	case 1:
 		if mtype.Out(0) == errorGoType {
-			return xerrors.New("return type must not be error")
+			return 0, nil, xerrors.New("return type must not be error")
 		}
 	case 2:
 		if mtype.Out(0) == errorGoType {
-			return xerrors.New("first return type must not be error")
+			return 0, nil, xerrors.New("first return type must not be error")
 		}
 		if got := mtype.Out(1); got != errorGoType {
-			return xerrors.Errorf("second return type must be error (found %v)", got)
+			return 0, nil, xerrors.Errorf("second return type must be error (found %v)", got)
 		}
+		flags |= errorFieldMethodReturn
 	default:
-		return xerrors.New("wrong return signature")
+		return 0, nil, xerrors.New("wrong return signature")
 	}
-	return nil
+	return flags, argsType, nil
 }
 
 // typeKey is the key to the schema's Go type cache.
@@ -639,9 +649,20 @@ func (desc *typeDescriptor) read(ctx context.Context, recv reflect.Value, req Fi
 }
 
 type fieldDescriptor struct {
-	fieldIndex  int
-	methodIndex int
+	fieldIndex int
+
+	methodIndex    int
+	methodArgsType reflect.Type
+	methodFlags    fieldMethodFlags
 }
+
+type fieldMethodFlags uint8
+
+const (
+	contextFieldMethodArg fieldMethodFlags = 1 << iota
+	selectionSetFieldMethodArg
+	errorFieldMethodReturn
+)
 
 func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, req FieldRequest) (reflect.Value, error) {
 	if fdesc.fieldIndex != -1 {
@@ -652,37 +673,45 @@ func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, req F
 		return recv.Field(fdesc.fieldIndex), nil
 	}
 	method := recv.Method(fdesc.methodIndex)
-	mtype := method.Type()
-	numIn := mtype.NumIn()
 	var callArgs []reflect.Value
-	if len(callArgs) < numIn && mtype.In(len(callArgs)) == contextGoType {
+	if fdesc.methodFlags&contextFieldMethodArg != 0 {
 		callArgs = append(callArgs, reflect.ValueOf(ctx))
 	}
-	if len(callArgs) < numIn && mtype.In(len(callArgs)) == valueMapGoType {
+	switch {
+	case fdesc.methodArgsType == nil:
+		// Don't add an argument.
+	case fdesc.methodArgsType == valueMapGoType:
 		callArgs = append(callArgs, reflect.ValueOf(req.Args))
+	case fdesc.methodArgsType.Kind() == reflect.Struct:
+		argsArg := reflect.New(fdesc.methodArgsType)
+		if err := convertValueMap(argsArg.Elem(), req.Args, nil); err != nil {
+			return reflect.Value{}, xerrors.Errorf("convert arguments: %w", err)
+		}
+		callArgs = append(callArgs, argsArg.Elem())
+	case fdesc.methodArgsType.Kind() == reflect.Ptr:
+		argsArg := reflect.New(fdesc.methodArgsType.Elem())
+		if err := convertValueMap(argsArg.Elem(), req.Args, nil); err != nil {
+			return reflect.Value{}, xerrors.Errorf("convert arguments: %w", err)
+		}
+		callArgs = append(callArgs, argsArg)
+	default:
+		panic("unknown field method arguments parameter type")
 	}
-	if len(callArgs) < numIn && mtype.In(len(callArgs)) == selectionSetGoType {
+	if fdesc.methodFlags&selectionSetFieldMethodArg != 0 {
 		callArgs = append(callArgs, reflect.ValueOf(req.Selection))
 	}
-	if len(callArgs) != numIn {
-		panic("unexpected method parameters; bug in validateFieldMethodSignature?")
-	}
-	switch mtype.NumOut() {
-	case 1:
+	if fdesc.methodFlags&errorFieldMethodReturn == 0 {
 		out := method.Call(callArgs)
 		return out[0], nil
-	case 2:
-		out := method.Call(callArgs)
-		if !out[1].IsNil() {
-			// Intentionally making the returned error opaque to avoid interference in
-			// toResponseError.
-			err := out[1].Interface().(error)
-			return reflect.Value{}, xerrors.Errorf("server error: %v", err)
-		}
-		return out[0], nil
-	default:
-		panic("unexpected method return signature; bug in validateFieldMethodSignature?")
 	}
+	out := method.Call(callArgs)
+	if !out[1].IsNil() {
+		// Intentionally making the returned error opaque to avoid interference in
+		// toResponseError.
+		err := out[1].Interface().(error)
+		return reflect.Value{}, xerrors.Errorf("server error: %v", err)
+	}
+	return out[0], nil
 }
 
 var (
