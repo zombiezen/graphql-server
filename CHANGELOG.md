@@ -5,20 +5,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased][]
 
-[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.4.0...HEAD
+
+## [0.4.0][]
+
+The 0.4.0 makes usability improvements for field method implementations.
+Notably, field method arguments can be structs rather than maps and
+`*SelectionSet` now supports querying for nested fields using a dotted syntax.
+
+[0.4.0]: https://github.com/zombiezen/graphql-server/releases/tag/v0.4.0
 
 ### Added
 
 -  A new application template is available: [graphql-go-app][]. This makes it
    easier to get to a productive application quickly.
--  `SelectionSet` has a new method `HasAny` to check for multiple fields at
+-  `SelectionSet` has a new method [`HasAny`][] to check for multiple fields at
    once. ([#28][])
--  `Value` has a new method `Convert` that converts GraphQL values into Go
-   values. A new function `ConvertValueMap` converts a `map[string]graphql.Value`
-   into a Go struct.
+-  `Value` has a new method [`Convert`][] that converts GraphQL values into Go
+   values. A new function [`ConvertValueMap`][] converts a
+   `map[string]graphql.Value` into a Go struct.
 
 [#28]: https://github.com/zombiezen/graphql-server/issues/28
+[`Convert`]: https://pkg.go.dev/zombiezen.com/go/graphql-server/graphql#Value.Convert
+[`ConvertValueMap`]: https://pkg.go.dev/zombiezen.com/go/graphql-server/graphql#ConvertValueMap
 [graphql-go-app]: https://github.com/zombiezen/graphql-go-app
+[`HasAny`]: https://pkg.go.dev/zombiezen.com/go/graphql-server/graphql#SelectionSet.HasAny
 
 ### Changed
 
@@ -27,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    populate the struct before the field method is called. ([#18][])
 -  `*SelectionSet.Has` and `*SelectionSet.OnlyUses` now permit dotted field
    syntax to more conveniently check nested fields. ([#31][])
--  If an object implements the new `FieldResolver` interface, then the
+-  If an object implements the new [`FieldResolver`][] interface, then the
    `ResolveField` will be called to dispatch all field executions. This makes it
    easier to implement stub types or integrate custom data sources with the
    server. ([#30][])
@@ -35,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#18]: https://github.com/zombiezen/graphql-server/issues/18
 [#30]: https://github.com/zombiezen/graphql-server/issues/30
 [#31]: https://github.com/zombiezen/graphql-server/issues/31
+[`FieldResolver`]: https://pkg.go.dev/zombiezen.com/go/graphql-server/graphql#FieldResolver
 
 ### Fixed
 
