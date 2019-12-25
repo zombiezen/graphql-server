@@ -30,11 +30,17 @@ type Query struct {
 	GenericGreeting string
 }
 
-// Greet is a field that takes arguments. The arguments are validated through
-// GraphQL's type system before the method is called.
-func (q *Query) Greet(args map[string]graphql.Value) string {
-	subject := args["subject"].Scalar()
-	return fmt.Sprintf("Hello, %s!", subject)
+// Greet is a field that takes arguments.
+func (q *Query) Greet(args *GreetArgs) (string, error) {
+	message := fmt.Sprintf("Hello, %s!", args.Subject)
+	return message, nil
+}
+
+// GreetArgs are arguments passed to the Query.greet field. The arguments are
+// validated through GraphQL's type system and converted into this struct before
+// the Greet method is called.
+type GreetArgs struct {
+	Subject string
 }
 
 func Example() {
