@@ -31,49 +31,46 @@ import (
 // Server manages execution of GraphQL operations.
 type Server struct {
 	schema   *Schema
-	query    reflect.Value
-	mutation reflect.Value
+	query    operation
+	mutation operation
 }
 
-// NewServer returns a new server that is backed by the given query and
-// mutation objects. The mutation object is optional.
+// NewServer returns a new server that is backed by the given query object and
+// optional mutation object. These must either be objects that follow the rules
+// laid out in Field Resolution in the package documentation, or functions that
+// return such objects. Functions may have up to two parameters: an optional
+// context.Context followed by an optional *SelectionSet. The function may also
+// have an error return.
 func NewServer(schema *Schema, query, mutation interface{}) (*Server, error) {
-	srv := &Server{
-		schema:   schema,
-		query:    reflect.ValueOf(query),
-		mutation: reflect.ValueOf(mutation),
-	}
 	// Check for missing or extra arguments first.
-	if !srv.query.IsValid() {
+	if query == nil {
 		return nil, xerrors.New("new server: query is required")
 	}
-	if schema.mutation != nil && !srv.mutation.IsValid() {
+	if mutation == nil && schema.mutation != nil {
 		return nil, xerrors.New("new server: schema specified mutation type, but no mutation object given")
 	}
-	if schema.mutation == nil && srv.mutation.IsValid() {
+	if mutation != nil && schema.mutation == nil {
 		return nil, xerrors.New("new server: mutation object given, but no mutation type")
 	}
-	// Next check for type errors with the values provided.
-	err := schema.typeDescriptor(typeKey{
-		goType:  srv.query.Type(),
-		gqlType: schema.query.obj,
-	}).err
-	if err != nil {
-		return nil, xerrors.Errorf("new server: can't use %v for query: %w", srv.query.Type(), err)
+
+	// Next check for type errors with the arguments provided.
+	srv := &Server{
+		schema: schema,
 	}
-	if schema.mutation != nil {
-		err := schema.typeDescriptor(typeKey{
-			goType:  srv.mutation.Type(),
-			gqlType: schema.mutation.obj,
-		}).err
-		if err != nil {
-			return nil, xerrors.Errorf("new server: can't use %v for mutation: %w", srv.mutation.Type(), err)
-		}
+	var err error
+	srv.query, err = newOperation(schema, schema.query, query)
+	if err != nil {
+		return nil, xerrors.Errorf("new server: %w", err)
+	}
+	srv.mutation, err = newOperation(schema, schema.mutation, mutation)
+	if err != nil {
+		return nil, xerrors.Errorf("new server: %w", err)
 	}
 	return srv, nil
 }
 
-// Schema returns the schema passed to NewServer.
+// Schema returns the schema passed to NewServer. It is safe to call from
+// multiple goroutines.
 func (srv *Server) Schema() *Schema {
 	return srv.schema
 }
@@ -132,44 +129,7 @@ func (srv *Server) executeValidated(ctx context.Context, req Request) Response {
 		types:     srv.schema.types,
 		variables: varValues,
 	}
-	var data Value
-	switch op.Type {
-	case gqlang.Query:
-		var sel *SelectionSet
-		sel, errs = newSelectionSet(scope, srv.schema.query, op.SelectionSet)
-		if len(errs) == 0 {
-			data, errs = srv.schema.valueFromGo(ctx, varValues, srv.query, srv.schema.query, sel)
-		}
-	case gqlang.Mutation:
-		if !srv.mutation.IsValid() {
-			pos := op.Start.ToPosition(req.ValidatedQuery.source)
-			return Response{
-				Errors: []*ResponseError{{
-					Message: "unsupported operation type",
-					Locations: []Location{{
-						Line:   pos.Line,
-						Column: pos.Column,
-					}},
-				}},
-			}
-		}
-		var sel *SelectionSet
-		sel, errs = newSelectionSet(scope, srv.schema.mutation, op.SelectionSet)
-		if len(errs) == 0 {
-			data, errs = srv.schema.valueFromGo(ctx, varValues, srv.mutation, srv.schema.mutation, sel)
-		}
-	default:
-		pos := op.Start.ToPosition(req.ValidatedQuery.source)
-		return Response{
-			Errors: []*ResponseError{{
-				Message: "unsupported operation type",
-				Locations: []Location{{
-					Line:   pos.Line,
-					Column: pos.Column,
-				}},
-			}},
-		}
-	}
+	data, errs := srv.resolve(ctx, scope, op)
 	resp := Response{
 		Data: data,
 	}
@@ -177,6 +137,58 @@ func (srv *Server) executeValidated(ctx context.Context, req Request) Response {
 		resp.Errors = append(resp.Errors, toResponseError(err))
 	}
 	return resp
+}
+
+func (srv *Server) resolve(ctx context.Context, scope *selectionSetScope, op *gqlang.Operation) (Value, []error) {
+	gt, obj, err := srv.operationFor(op.Type)
+	if err != nil {
+		pos := op.Start.ToPosition(scope.source)
+		return Value{}, []error{&ResponseError{
+			Message: err.Error(),
+			Locations: []Location{{
+				Line:   pos.Line,
+				Column: pos.Column,
+			}},
+		}}
+	}
+	sel, errs := newSelectionSet(scope, gt, op.SelectionSet)
+	if len(errs) > 0 {
+		return Value{}, errs
+	}
+	value := obj.value
+	if obj.flags&operationFunc != 0 {
+		var args []reflect.Value
+		if obj.flags&operationContextParam != 0 {
+			args = append(args, reflect.ValueOf(ctx))
+		}
+		if obj.flags&operationSelectionSetParam != 0 {
+			args = append(args, reflect.ValueOf(sel))
+		}
+		ret := value.Call(args)
+		if len(ret) == 2 {
+			if err, _ := ret[1].Interface().(error); err != nil {
+				// Intentionally making the returned error opaque to avoid interference in
+				// toResponseError.
+				return Value{}, []error{xerrors.Errorf("server error: %v", err)}
+			}
+		}
+		value = ret[0]
+	}
+	return srv.schema.valueFromGo(ctx, scope.variables, value, gt, sel)
+}
+
+func (srv *Server) operationFor(opType gqlang.OperationType) (*gqlType, operation, error) {
+	switch opType {
+	case gqlang.Query:
+		return srv.schema.query, srv.query, nil
+	case gqlang.Mutation:
+		if !srv.mutation.value.IsValid() {
+			return nil, operation{}, xerrors.New("unsupported operation type")
+		}
+		return srv.schema.mutation, srv.mutation, nil
+	default:
+		return nil, operation{}, xerrors.New("unsupported operation type")
+	}
 }
 
 // ValidatedQuery is a query that has been parsed and type-checked.
@@ -195,6 +207,85 @@ func (query *ValidatedQuery) TypeOf(operationName string) OperationType {
 		return 0
 	}
 	return operationTypeFromAST(op.Type)
+}
+
+type operation struct {
+	value reflect.Value
+	flags operationFlags
+}
+
+type operationFlags uint8
+
+const (
+	operationFunc operationFlags = 1 << iota
+	operationContextParam
+	operationSelectionSetParam
+)
+
+func newOperation(schema *Schema, gt *gqlType, v interface{}) (operation, error) {
+	if v == nil {
+		return operation{}, nil
+	}
+	value := reflect.ValueOf(v)
+	if _, ok := interfaceValueForAssertions(value).(FieldResolver); ok {
+		return operation{value: value}, nil
+	}
+	if value.Kind() == reflect.Func {
+		return newOperationFunc(schema, gt, value)
+	}
+	typ := value.Type()
+	err := schema.typeDescriptor(typeKey{
+		goType:  typ,
+		gqlType: gt.obj,
+	}).err
+	if err != nil {
+		return operation{}, xerrors.Errorf("cannot use %v to provide %v: %w", typ, gt, err)
+	}
+	return operation{value: value}, nil
+}
+
+func newOperationFunc(schema *Schema, gt *gqlType, value reflect.Value) (operation, error) {
+	flags := operationFunc
+	typ := value.Type()
+	numIn := typ.NumIn()
+	argIdx := 0
+	if argIdx < numIn && typ.In(argIdx) == contextGoType {
+		flags |= operationContextParam
+		argIdx++
+	}
+	if argIdx < numIn && typ.In(argIdx) == selectionSetGoType {
+		flags |= operationSelectionSetParam
+		argIdx++
+	}
+	if argIdx < numIn {
+		return operation{}, xerrors.Errorf("cannot use %v to provide %v: incorrect parameters", typ, gt)
+	}
+	switch typ.NumOut() {
+	case 1:
+		if typ.Out(0) == errorGoType {
+			return operation{}, xerrors.Errorf("cannot use %v to provide %v: first return value must be non-error", typ, gt)
+		}
+	case 2:
+		if typ.Out(0) == errorGoType {
+			return operation{}, xerrors.Errorf("cannot use %v to provide %v: first return value must be non-error", typ, gt)
+		}
+		if typ.Out(1) != errorGoType {
+			return operation{}, xerrors.Errorf("cannot use %v to provide %v: second return value must be error", typ, gt)
+		}
+	default:
+		return operation{}, xerrors.Errorf("cannot use %v to provide %v: must have 1-2 return values", typ, gt)
+	}
+	err := schema.typeDescriptor(typeKey{
+		goType:  typ.Out(0),
+		gqlType: gt.obj,
+	}).err
+	if err != nil {
+		return operation{}, xerrors.Errorf("cannot use %v to provide %v: %w", typ, gt, err)
+	}
+	return operation{
+		value: value,
+		flags: flags,
+	}, nil
 }
 
 // OperationType represents the keywords used to declare operations.

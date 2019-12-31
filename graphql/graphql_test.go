@@ -1142,6 +1142,65 @@ func TestExecuteQuery(t *testing.T) {
 				{key: "myString", value: valueExpectations{scalar: "Hello"}},
 			},
 		},
+		{
+			name: "Function/NoArgs",
+			queryObject: func(e errorfer) interface{} {
+				return func() *testQueryStruct {
+					return &testQueryStruct{
+						MyString: NullString{S: "Hello", Valid: true},
+					}
+				}
+			},
+			request: Request{Query: `{ myString }`},
+			want: []fieldExpectations{
+				{key: "myString", value: valueExpectations{scalar: "Hello"}},
+			},
+		},
+		{
+			name: "Function/AllArgs",
+			queryObject: func(e errorfer) interface{} {
+				return func(ctx context.Context, sel *SelectionSet) *testQueryStruct {
+					if !sel.Has("myString") {
+						t.Error("sel.Has(\"myString\") = false; want true")
+					}
+					return &testQueryStruct{
+						MyString: NullString{S: "Hello", Valid: true},
+					}
+				}
+			},
+			request: Request{Query: `{ myString }`},
+			want: []fieldExpectations{
+				{key: "myString", value: valueExpectations{scalar: "Hello"}},
+			},
+		},
+		{
+			name: "Function/ErrorReturn/Nil",
+			queryObject: func(e errorfer) interface{} {
+				return func() (*testQueryStruct, error) {
+					return &testQueryStruct{
+						MyString: NullString{S: "Hello", Valid: true},
+					}, nil
+				}
+			},
+			request: Request{Query: `{ myString }`},
+			want: []fieldExpectations{
+				{key: "myString", value: valueExpectations{scalar: "Hello"}},
+			},
+		},
+		{
+			name: "Function/ErrorReturn/Error",
+			queryObject: func(e errorfer) interface{} {
+				return func() (*testQueryStruct, error) {
+					return &testQueryStruct{
+						MyString: NullString{S: "Hello", Valid: true},
+					}, xerrors.New("fail!")
+				}
+			},
+			request: Request{Query: `{ myString }`},
+			wantErrors: []*ResponseError{
+				new(ResponseError),
+			},
+		},
 	}
 
 	ctx := context.Background()
@@ -1410,6 +1469,57 @@ func TestExecuteMutate(t *testing.T) {
 					Locations: []Location{{1, 12}},
 					Path:      []PathSegment{{Field: "errorMethod"}},
 				},
+			},
+		},
+		{
+			name: "Function/NoArgs",
+			mutationObject: func() *testMutationStruct {
+				return &testMutationStruct{
+					StructField: true,
+				}
+			},
+			request: Request{Query: `mutation { structField }`},
+			want: []fieldExpectations{
+				{key: "structField", value: valueExpectations{scalar: "true"}},
+			},
+		},
+		{
+			name: "Function/AllArgs",
+			mutationObject: func(ctx context.Context, sel *SelectionSet) *testMutationStruct {
+				if !sel.Has("structField") {
+					t.Error("sel.Has(\"structField\") = false; want true")
+				}
+				return &testMutationStruct{
+					StructField: true,
+				}
+			},
+			request: Request{Query: `mutation { structField }`},
+			want: []fieldExpectations{
+				{key: "structField", value: valueExpectations{scalar: "true"}},
+			},
+		},
+		{
+			name: "Function/ErrorReturn/Nil",
+			mutationObject: func() (*testMutationStruct, error) {
+				return &testMutationStruct{
+					StructField: true,
+				}, nil
+			},
+			request: Request{Query: `mutation { structField }`},
+			want: []fieldExpectations{
+				{key: "structField", value: valueExpectations{scalar: "true"}},
+			},
+		},
+		{
+			name: "Function/ErrorReturn/Error",
+			mutationObject: func() (*testMutationStruct, error) {
+				return &testMutationStruct{
+					StructField: true,
+				}, xerrors.New("fail!")
+			},
+			request: Request{Query: `mutation { structField }`},
+			wantErrors: []*ResponseError{
+				new(ResponseError),
 			},
 		},
 	}
