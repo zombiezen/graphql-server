@@ -30,7 +30,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-func TestExecute(t *testing.T) {
+func TestExecuteQuery(t *testing.T) {
 	t.Parallel()
 	const schemaSource = `
 		type Query {
@@ -90,12 +90,20 @@ func TestExecute(t *testing.T) {
 		}
 	`
 	tests := []struct {
-		name        string
-		queryObject func(e errorfer) interface{}
-		request     Request
-		want        []fieldExpectations
-		wantErrors  []*ResponseError
+		name          string
+		queryObject   func(e errorfer) interface{}
+		request       Request
+		want          []fieldExpectations
+		wantInitError bool
+		wantErrors    []*ResponseError
 	}{
+		{
+			name: "Nil",
+			queryObject: func(e errorfer) interface{} {
+				return nil
+			},
+			wantInitError: true,
+		},
 		{
 			name: "String/Empty",
 			queryObject: func(e errorfer) interface{} {
@@ -1147,7 +1155,14 @@ func TestExecute(t *testing.T) {
 			t.Parallel()
 			srv, err := NewServer(schema, test.queryObject(t), nil)
 			if err != nil {
-				t.Fatal(err)
+				t.Logf("NewServer: %v", err)
+				if !test.wantInitError {
+					t.Fail()
+				}
+				return
+			}
+			if test.wantInitError {
+				t.Fatal("NewServer did not return error")
 			}
 			resp := srv.Execute(ctx, test.request)
 			for _, e := range resp.Errors {
@@ -1337,6 +1352,117 @@ func (s testErrorScalar) MarshalText() ([]byte, error) {
 		return nil, xerrors.New("flail")
 	}
 	return []byte("ok"), nil
+}
+
+func TestExecuteMutate(t *testing.T) {
+	t.Parallel()
+	const schemaSource = `
+		type Query {
+			foo: Boolean
+		}
+
+		type Mutation {
+			structField: Boolean!
+			method: Boolean!
+			errorMethod: Boolean!
+		}
+	`
+	tests := []struct {
+		name           string
+		mutationObject interface{}
+		request        Request
+		want           []fieldExpectations
+		wantInitError  bool
+		wantErrors     []*ResponseError
+	}{
+		{
+			name:           "Nil",
+			mutationObject: nil,
+			wantInitError:  true,
+		},
+		{
+			name: "StructField",
+			mutationObject: &testMutationStruct{
+				StructField: true,
+			},
+			request: Request{Query: `mutation { structField }`},
+			want: []fieldExpectations{
+				{key: "structField", value: valueExpectations{scalar: "true"}},
+			},
+		},
+		{
+			name:           "Method/Success",
+			mutationObject: new(testMutationStruct),
+			request:        Request{Query: `mutation { method }`},
+			want: []fieldExpectations{
+				{key: "method", value: valueExpectations{scalar: "true"}},
+			},
+		},
+		{
+			name:           "Method/Error",
+			mutationObject: new(testMutationStruct),
+			request:        Request{Query: `mutation { errorMethod }`},
+			want: []fieldExpectations{
+				{key: "errorMethod", value: valueExpectations{null: true}},
+			},
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{{1, 12}},
+					Path:      []PathSegment{{Field: "errorMethod"}},
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+	schema, err := ParseSchema(schemaSource, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryObject := fieldResolverFunc(func(ctx context.Context, req FieldRequest) (interface{}, error) {
+		return nil, xerrors.New("stub")
+	})
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			srv, err := NewServer(schema, queryObject, test.mutationObject)
+			if err != nil {
+				t.Logf("NewServer: %v", err)
+				if !test.wantInitError {
+					t.Fail()
+				}
+				return
+			}
+			if test.wantInitError {
+				t.Fatal("NewServer did not return error")
+			}
+			resp := srv.Execute(ctx, test.request)
+			for _, e := range resp.Errors {
+				t.Logf("Error: %s", e.Message)
+			}
+			if diff := compareErrors(test.wantErrors, resp.Errors); diff != "" {
+				t.Errorf("errors (-want +got):\n%s", diff)
+			}
+			if len(test.want) == 0 && resp.Data.IsNull() {
+				return
+			}
+			expect := &valueExpectations{object: test.want}
+			expect.check(t, resp.Data)
+		})
+	}
+}
+
+type testMutationStruct struct {
+	StructField bool
+}
+
+func (testMutationStruct) Method() bool {
+	return true
+}
+
+func (testMutationStruct) ErrorMethod() (bool, error) {
+	return false, xerrors.New("failure")
 }
 
 func TestFieldResolver(t *testing.T) {
