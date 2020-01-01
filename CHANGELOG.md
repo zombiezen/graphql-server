@@ -5,13 +5,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased][]
 
-[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.5.0...HEAD
+
+## [0.5.0][]
+
+The 0.5 release adds functionality to allow control of requests before resolving
+any fields.
+
+[0.5.0]: https://github.com/zombiezen/graphql-server/releases/tag/v0.5.0
 
 ### Added
 
--  `SelectionSet` has two new methods to permit iteration over its fields:
-   `Len` and `Field`. `SelectedField` now has a method `Name` to distinguish the
-   fields. ([#39][])
+-  `*SelectionSet` has two new methods to permit iteration over its fields:
+   `Len` and `Field`. `*SelectedField` now has a method `Name` to distinguish
+   the fields. ([#39][])
 
 [#39]: https://github.com/zombiezen/graphql-server/issues/39
 
@@ -23,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.0][]
 
-The 0.4.0 makes usability improvements for field method implementations.
+The 0.4 release makes usability improvements for field method implementations.
 Notably, field method arguments can be structs rather than maps and
 `*SelectionSet` now supports querying for nested fields using a dotted syntax.
 
