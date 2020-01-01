@@ -148,6 +148,22 @@ func (set *SelectionSet) find(key string) *SelectedField {
 	return nil
 }
 
+// Len returns the number of fields in the selection set.
+func (set *SelectionSet) Len() int {
+	if set == nil {
+		return 0
+	}
+	return len(set.fields)
+}
+
+// Field returns the i'th field in the selection set. Field will panic if i is
+// not in the range [0, set.Len()).
+func (set *SelectionSet) Field(i int) *SelectedField {
+	// Calling Field on a nil set is invalid, so letting the nil pointer
+	// dereference panic.
+	return set.fields[i]
+}
+
 // Has reports whether the selection set includes the field with the given name.
 //
 // The argument may contain dots to check for subfields. For example, Has("a.b")
@@ -302,6 +318,12 @@ func (f *SelectedField) toRequest() FieldRequest {
 		Args:      f.args,
 		Selection: f.sub,
 	}
+}
+
+// Name returns the name of the field. This may be different than the key used
+// in the response when the query is using aliases.
+func (f *SelectedField) Name() string {
+	return f.name
 }
 
 // Arg returns the argument with the given name or a null Value if the argument

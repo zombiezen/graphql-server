@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.4.0...HEAD
 
+### Added
+
+-  `SelectionSet` has two new methods to permit iteration over its fields:
+   `Len` and `Field`. `SelectedField` now has a method `Name` to distinguish the
+   fields. ([#39][])
+
+[#39]: https://github.com/zombiezen/graphql-server/issues/39
+
 ### Changed
 
 -  `NewServer` now accepts functions as arguments which will be called to
    resolve the top-level query or mutation objects. This can be used for
    enforcing query cost restrictions or creating per-request objects. ([#39][])
-
-[#39]: https://github.com/zombiezen/graphql-server/issues/39
 
 ## [0.4.0][]
 
