@@ -233,7 +233,7 @@ func (set *SelectionSet) OnlyUses(names ...string) bool {
 			if f.name != typeNameFieldName && !currFrame.allowed.has(f.name) {
 				return false
 			}
-			if f.sub != nil {
+			if f.sub != nil && !currFrame.allowed[f.name].selected {
 				stack = append(stack, frame{
 					fields:  f.sub.fields,
 					allowed: currFrame.allowed[f.name].subtree,

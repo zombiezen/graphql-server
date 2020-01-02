@@ -5,7 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased][]
 
-[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.6.1...HEAD
+
+## [0.6.1][]
+
+[0.6.1]: https://github.com/zombiezen/graphql-server/releases/tag/v0.6.1
+
+### Fixed
+
+-  `*SelectionSet.OnlyUses` now treats specifying a composite field as if all of
+   its subfields were named as arguments.
 
 ## [0.6.0][]
 

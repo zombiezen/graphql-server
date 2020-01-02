@@ -218,6 +218,14 @@ func TestSelectionSet_OnlyUses(t *testing.T) {
 			want:   true,
 		},
 		{
+			name: "Composite",
+			request: Request{
+				Query: `{ object { baz { quux } }}`,
+			},
+			fields: []string{"baz"},
+			want:   true,
+		},
+		{
 			name: "Dotted/SameSet",
 			request: Request{
 				Query: `{ object { baz { quux } }}`,
@@ -248,6 +256,14 @@ func TestSelectionSet_OnlyUses(t *testing.T) {
 			},
 			fields: []string{"baz.quux"},
 			want:   false,
+		},
+		{
+			name: "Dotted/WithParent",
+			request: Request{
+				Query: `{ object { baz { snafu } }}`,
+			},
+			fields: []string{"baz", "baz.quux"},
+			want:   true,
 		},
 	}
 	schema, err := ParseSchema(selectionSetTestSchema, nil)
