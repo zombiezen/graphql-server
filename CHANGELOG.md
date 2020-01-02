@@ -5,7 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased][]
 
-[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.6.0...HEAD
+
+## [0.6.0][]
+
+The 0.6 release added the `OperationFinisher` interface.
+
+[0.6.0]: https://github.com/zombiezen/graphql-server/releases/tag/v0.6.0
+
+### Added
+
+-  Top-level objects can implement the new [`OperationFinisher`][] interface to
+   take action after the rest of the request's execution. ([#44][])
+
+[#44]: https://github.com/zombiezen/graphql-server/issues/44
+[`OperationFinisher`]: https://pkg.go.dev/zombiezen.com/go/graphql-server/graphql#OperationFinisher
 
 ## [0.5.0][]
 

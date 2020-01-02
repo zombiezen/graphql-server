@@ -41,6 +41,9 @@ type Server struct {
 // return such objects. Functions may have up to two parameters: an optional
 // context.Context followed by an optional *SelectionSet. The function may also
 // have an error return.
+//
+// Top-level objects may also implement the OperationFinisher interface. See the
+// interface documentation for details.
 func NewServer(schema *Schema, query, mutation interface{}) (*Server, error) {
 	// Check for missing or extra arguments first.
 	if query == nil {
@@ -174,7 +177,19 @@ func (srv *Server) resolve(ctx context.Context, scope *selectionSetScope, op *gq
 		}
 		value = ret[0]
 	}
-	return srv.schema.valueFromGo(ctx, scope.variables, value, gt, sel)
+	result, resultErrs := srv.schema.valueFromGo(ctx, scope.variables, value, gt, sel)
+	if finisher, ok := interfaceValueForAssertions(value).(OperationFinisher); ok {
+		err := finisher.FinishOperation(ctx, &OperationDetails{
+			SelectionSet: sel,
+			HasErrors: len(resultErrs) > 0,
+		})
+		if err != nil {
+			// Intentionally making the returned error opaque to avoid interference in
+			// toResponseError.
+			resultErrs = append(resultErrs, xerrors.Errorf("server error: finish request: %v", err))
+		}
+	}
+	return result, resultErrs
 }
 
 func (srv *Server) operationFor(opType gqlang.OperationType) (*gqlType, operation, error) {
@@ -207,6 +222,28 @@ func (query *ValidatedQuery) TypeOf(operationName string) OperationType {
 		return 0
 	}
 	return operationTypeFromAST(op.Type)
+}
+
+// If a top-level object (like query or mutation) implements OperationFinisher,
+// then its FinishOperation method will be called after all its fields are
+// resolved. The details struct must not be modified or retained past the end
+// of the call to FinishOperation. If an error is returned, then it will be
+// added to the response's errors, but the data will still be returned to the
+// client.
+//
+// If the top-level object is shared between requests, then FinishOperation must
+// be safe to call concurrently from multiple goroutines.
+type OperationFinisher interface {
+	FinishOperation(ctx context.Context, details *OperationDetails) error
+}
+
+// OperationDetails holds information about a nearly completed request.
+type OperationDetails struct {
+	// SelectionSet is the top-level selection set.
+	SelectionSet *SelectionSet
+
+	// HasErrors will be true if the operation will return at least one error.
+	HasErrors bool
 }
 
 type operation struct {

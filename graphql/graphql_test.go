@@ -1626,6 +1626,124 @@ func (f fieldResolverFunc) Foo() (string, error) {
 	return "WRONG", xerrors.New("this method should never be called")
 }
 
+func TestOperationFinisher(t *testing.T) {
+	t.Parallel()
+
+	schema, err := ParseSchema(`
+		type Query {
+			foo: String!
+		}
+	`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	t.Run("NoErrors", func(t *testing.T) {
+		query := &testOperationFinisher{
+			foo: "bar",
+		}
+		server, err := NewServer(schema, query, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := server.Execute(ctx, Request{Query: "{ foo }"})
+		if query.called != 1 {
+			t.Errorf("FinishOperation called %d times; want 1", query.called)
+		} else {
+			if query.hasErrors {
+				t.Error("FinishOperation reported HasErrors")
+			}
+		}
+		for _, err := range response.Errors {
+			t.Errorf("Response error: %v", err)
+		}
+		if got, want := response.Data.ValueFor("foo").Scalar(), "bar"; got != want {
+			t.Errorf("foo = %q; want %q", got, want)
+		}
+	})
+	t.Run("ReturnError", func(t *testing.T) {
+		query := &testOperationFinisher{
+			foo:         "bar",
+			finishError: xerrors.New("BORK"),
+		}
+		server, err := NewServer(schema, query, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := server.Execute(ctx, Request{Query: "{ foo }"})
+		if query.called != 1 {
+			t.Errorf("FinishOperation called %d times; want 1", query.called)
+		} else {
+			if query.hasErrors {
+				t.Error("FinishOperation reported HasErrors")
+			}
+		}
+		if len(response.Errors) != 1 {
+			t.Errorf("Response returned %d errors; want 1", len(response.Errors))
+		} else {
+			err := response.Errors[0]
+			t.Logf("Response error message: %s", err.Message)
+			if want := "BORK"; !strings.Contains(err.Message, want) {
+				t.Errorf("Response error message does not contain %q", want)
+			}
+			if len(err.Locations) > 0 || len(err.Path) > 0 {
+				t.Error("Response error had locations and/or a path")
+			}
+		}
+		if got, want := response.Data.ValueFor("foo").Scalar(), "bar"; got != want {
+			t.Errorf("foo = %q; want %q", got, want)
+		}
+	})
+	t.Run("FieldError", func(t *testing.T) {
+		query := &testOperationFinisher{
+			fooError: xerrors.New("can't fetch"),
+		}
+		server, err := NewServer(schema, query, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := server.Execute(ctx, Request{Query: "{ foo }"})
+		if query.called != 1 {
+			t.Errorf("FinishOperation called %d times; want 1", query.called)
+		} else {
+			if !query.hasErrors {
+				t.Error("FinishOperation did not report HasErrors")
+			}
+		}
+		if len(response.Errors) != 1 {
+			t.Errorf("Response returned %d errors; want 1", len(response.Errors))
+		} else {
+			err := response.Errors[0]
+			t.Logf("Response error message: %s", err.Message)
+			wantPath := []PathSegment{
+				{Field: "foo"},
+			}
+			if diff := cmp.Diff(wantPath, err.Path); diff != "" {
+				t.Errorf("Response error path (-want +got):\n%s", diff)
+			}
+		}
+	})
+}
+
+type testOperationFinisher struct {
+	foo      string
+	fooError error
+
+	called      int
+	hasErrors   bool
+	finishError error
+}
+
+func (f *testOperationFinisher) Foo() (string, error) {
+	return f.foo, f.fooError
+}
+
+func (f *testOperationFinisher) FinishOperation(ctx context.Context, details *OperationDetails) error {
+	f.called++
+	f.hasErrors = details.HasErrors
+	return f.finishError
+}
+
 func newString(s string) *string { return &s }
 func newBool(b bool) *bool       { return &b }
 func newInt(i int) *int          { return &i }
