@@ -823,6 +823,7 @@ type TypeDefinition struct {
 
 	Scalar      *ScalarTypeDefinition
 	Object      *ObjectTypeDefinition
+	Union       *UnionTypeDefinition
 	Enum        *EnumTypeDefinition
 	InputObject *InputObjectTypeDefinition
 }
@@ -834,6 +835,8 @@ func (defn *TypeDefinition) Start() Pos {
 		return defn.Scalar.Keyword
 	case defn.Object != nil:
 		return defn.Object.Keyword
+	case defn.Union != nil:
+		return defn.Union.Keyword
 	case defn.Enum != nil:
 		return defn.Enum.Keyword
 	case defn.InputObject != nil:
@@ -853,6 +856,8 @@ func (defn *TypeDefinition) Description() *Description {
 		return defn.Scalar.Description
 	case defn.Object != nil:
 		return defn.Object.Description
+	case defn.Union != nil:
+		return defn.Union.Description
 	case defn.Enum != nil:
 		return defn.Enum.Description
 	case defn.InputObject != nil:
@@ -871,6 +876,8 @@ func (defn *TypeDefinition) Name() *Name {
 		return defn.Scalar.Name
 	case defn.Object != nil:
 		return defn.Object.Name
+	case defn.Union != nil:
+		return defn.Union.Name
 	case defn.Enum != nil:
 		return defn.Enum.Name
 	case defn.InputObject != nil:
@@ -934,6 +941,19 @@ type ArgumentsDefinition struct {
 	LParen Pos
 	Args   []*InputValueDefinition
 	RParen Pos
+}
+
+// UnionTypeDefinition defines an type that permits any one of a list of types.
+// https://graphql.github.io/graphql-spec/June2018/#UnionTypeDefinition
+type UnionTypeDefinition struct {
+	Description *Description
+	Keyword     Pos
+	Name        *Name
+	MemberTypes []*Name
+}
+
+func (defn *UnionTypeDefinition) asTypeDefinition() *TypeDefinition {
+	return &TypeDefinition{Union: defn}
 }
 
 // EnumTypeDefinition defines an enumeration type and its possible values.

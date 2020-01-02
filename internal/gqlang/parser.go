@@ -126,6 +126,9 @@ func (p *parser) definition(depth int) (*Definition, []error) {
 	case "type":
 		def, errs := p.objectTypeDefinition(depth + 1)
 		return def.asTypeDefinition().asDefinition(), errs
+	case "union":
+		def, errs := p.unionTypeDefinition(depth + 1)
+		return def.asTypeDefinition().asDefinition(), errs
 	case "enum":
 		def, errs := p.enumTypeDefinition(depth + 1)
 		return def.asTypeDefinition().asDefinition(), errs
@@ -1092,6 +1095,61 @@ func (p *parser) argumentsDefinition(depth int) (*ArgumentsDefinition, []error) 
 		})
 	}
 	return args, errs
+}
+
+func (p *parser) unionTypeDefinition(depth int) (*UnionTypeDefinition, []error) {
+	if depth > maxParseDepth {
+		return nil, []error{errTooDeep}
+	}
+	defn := new(UnionTypeDefinition)
+	defn.Description = p.optionalDescription()
+	if len(p.tokens) == 0 {
+		return nil, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("union type definition: expected 'union', got EOF"),
+		}}
+	}
+	if p.tokens[0].kind != name || p.tokens[0].source != "union" {
+		return nil, []error{&posError{
+			pos: p.tokens[0].start,
+			err: xerrors.Errorf("union type definition: expected 'union', found %q", p.tokens[0]),
+		}}
+	}
+	defn.Keyword = p.next().start
+	var err error
+	defn.Name, err = p.name()
+	if err != nil {
+		return defn, []error{xerrors.Errorf("union type definition: %w", err)}
+	}
+
+	// Member types.
+	if len(p.tokens) == 0 || p.tokens[0].kind != equals {
+		return defn, nil
+	}
+	p.next()
+	if len(p.tokens) == 0 {
+		return defn, []error{&posError{
+			pos: p.eofPos,
+			err: xerrors.New("union type definition: expected '|' or name, got EOF"),
+		}}
+	}
+	if p.tokens[0].kind == or {
+		p.next()
+	}
+	firstTypeName, err := p.name()
+	if err != nil {
+		return defn, []error{xerrors.Errorf("union type definition: %w", err)}
+	}
+	defn.MemberTypes = append(defn.MemberTypes, firstTypeName)
+	for len(p.tokens) > 0 && p.tokens[0].kind == or {
+		p.next()
+		nextTypeName, err := p.name()
+		if err != nil {
+			return defn, []error{xerrors.Errorf("union type definition: %w", err)}
+		}
+		defn.MemberTypes = append(defn.MemberTypes, nextTypeName)
+	}
+	return defn, nil
 }
 
 func (p *parser) enumTypeDefinition(depth int) (*EnumTypeDefinition, []error) {
