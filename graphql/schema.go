@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 
+	"go.opencensus.io/trace"
 	"golang.org/x/xerrors"
 	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
@@ -633,6 +634,9 @@ func (desc *typeDescriptor) read(ctx context.Context, recv reflect.Value, req Fi
 		return reflect.Value{}, desc.err
 	}
 	if desc.hasResolveField {
+		ctx, span := trace.StartSpan(ctx, "graphql:resolve "+req.Name, trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		span.AddAttributes(trace.StringAttribute("graphql.field", req.Name))
 		val, err := interfaceValueForAssertions(recv).(FieldResolver).ResolveField(ctx, req)
 		if err != nil {
 			// Intentionally making the returned error opaque to avoid interference in
@@ -673,29 +677,36 @@ func (fdesc fieldDescriptor) read(ctx context.Context, recv reflect.Value, req F
 		return recv.Field(fdesc.fieldIndex), nil
 	}
 	method := recv.Method(fdesc.methodIndex)
-	var callArgs []reflect.Value
-	if fdesc.methodFlags&contextFieldMethodArg != 0 {
-		callArgs = append(callArgs, reflect.ValueOf(ctx))
-	}
+	var argsArg reflect.Value
 	switch {
 	case fdesc.methodArgsType == nil:
 		// Don't add an argument.
 	case fdesc.methodArgsType == valueMapGoType:
-		callArgs = append(callArgs, reflect.ValueOf(req.Args))
+		argsArg = reflect.ValueOf(req.Args)
 	case fdesc.methodArgsType.Kind() == reflect.Struct:
-		argsArg := reflect.New(fdesc.methodArgsType)
+		argsArg = reflect.New(fdesc.methodArgsType)
 		if err := convertValueMap(argsArg.Elem(), req.Args, nil); err != nil {
 			return reflect.Value{}, xerrors.Errorf("convert arguments: %w", err)
 		}
-		callArgs = append(callArgs, argsArg.Elem())
+		argsArg = argsArg.Elem()
 	case fdesc.methodArgsType.Kind() == reflect.Ptr:
-		argsArg := reflect.New(fdesc.methodArgsType.Elem())
+		argsArg = reflect.New(fdesc.methodArgsType.Elem())
 		if err := convertValueMap(argsArg.Elem(), req.Args, nil); err != nil {
 			return reflect.Value{}, xerrors.Errorf("convert arguments: %w", err)
 		}
-		callArgs = append(callArgs, argsArg)
 	default:
 		panic("unknown field method arguments parameter type")
+	}
+
+	ctx, span := trace.StartSpan(ctx, "graphql:resolve "+req.Name, trace.WithSpanKind(trace.SpanKindServer))
+	defer span.End()
+	span.AddAttributes(trace.StringAttribute("graphql.field", req.Name))
+	var callArgs []reflect.Value
+	if fdesc.methodFlags&contextFieldMethodArg != 0 {
+		callArgs = append(callArgs, reflect.ValueOf(ctx))
+	}
+	if argsArg.IsValid() {
+		callArgs = append(callArgs, argsArg)
 	}
 	if fdesc.methodFlags&selectionSetFieldMethodArg != 0 {
 		callArgs = append(callArgs, reflect.ValueOf(req.Selection))

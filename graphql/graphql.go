@@ -24,6 +24,7 @@ import (
 	"reflect"
 	"strconv"
 
+	"go.opencensus.io/trace"
 	"golang.org/x/xerrors"
 	"zombiezen.com/go/graphql-server/internal/gqlang"
 )
@@ -80,19 +81,40 @@ func (srv *Server) Schema() *Schema {
 
 // Execute runs a single GraphQL operation. It is safe to call Execute from
 // multiple goroutines.
-func (srv *Server) Execute(ctx context.Context, req Request) Response {
+func (srv *Server) Execute(ctx context.Context, req Request) (response Response) {
+	ctx, span := trace.StartSpan(ctx, "graphql:execute", trace.WithSpanKind(trace.SpanKindServer))
+	defer func() {
+		if span.IsRecordingEvents() {
+			span.AddAttributes(trace.BoolAttribute("graphql.has_data", !response.Data.IsNull()))
+			if len(response.Errors) > 0 {
+				if errors, err := json.Marshal(response.Errors); err != nil {
+					span.AddAttributes(trace.StringAttribute("graphql.errors", string(errors)))
+				}
+			}
+		}
+		span.End()
+	}()
+
+	const queryAttribute = "graphql.query"
 	query := req.ValidatedQuery
 	if query == nil {
 		var errs []*ResponseError
+
+		span.AddAttributes(trace.StringAttribute(queryAttribute, req.Query))
+		_, validateSpan := trace.StartSpan(ctx, "graphql:validate", trace.WithSpanKind(trace.SpanKindServer))
 		query, errs = srv.schema.Validate(req.Query)
+		validateSpan.End()
 		if len(errs) > 0 {
 			return Response{Errors: errs}
 		}
-	} else if query.schema != srv.schema {
-		return Response{
-			Errors: []*ResponseError{
-				{Message: "query validated with a schema different from the server"},
-			},
+	} else {
+		span.AddAttributes(trace.StringAttribute(queryAttribute, query.source))
+		if query.schema != srv.schema {
+			return Response{
+				Errors: []*ResponseError{
+					{Message: "query validated with a schema different from the server"},
+				},
+			}
 		}
 	}
 	return srv.executeValidated(ctx, Request{
@@ -103,6 +125,7 @@ func (srv *Server) Execute(ctx context.Context, req Request) Response {
 }
 
 func (srv *Server) executeValidated(ctx context.Context, req Request) Response {
+	span := trace.FromContext(ctx)
 	op := req.ValidatedQuery.doc.FindOperation(req.OperationName)
 	if op == nil {
 		if req.OperationName == "" {
@@ -118,6 +141,7 @@ func (srv *Server) executeValidated(ctx context.Context, req Request) Response {
 			},
 		}
 	}
+	span.AddAttributes(trace.StringAttribute("graphql.operation_name", op.Name.String()))
 	varValues, errs := coerceVariableValues(req.ValidatedQuery.source, srv.schema.types, req.Variables, op.VariableDefinitions)
 	if len(errs) > 0 {
 		resp := Response{}
@@ -160,6 +184,7 @@ func (srv *Server) resolve(ctx context.Context, scope *selectionSetScope, op *gq
 	}
 	value := obj.value
 	if obj.flags&operationFunc != 0 {
+		ctx, span := trace.StartSpan(ctx, "graphql:new_operation", trace.WithSpanKind(trace.SpanKindServer))
 		var args []reflect.Value
 		if obj.flags&operationContextParam != 0 {
 			args = append(args, reflect.ValueOf(ctx))
@@ -168,6 +193,7 @@ func (srv *Server) resolve(ctx context.Context, scope *selectionSetScope, op *gq
 			args = append(args, reflect.ValueOf(sel))
 		}
 		ret := value.Call(args)
+		span.End()
 		if len(ret) == 2 {
 			if err, _ := ret[1].Interface().(error); err != nil {
 				// Intentionally making the returned error opaque to avoid interference in
@@ -181,7 +207,7 @@ func (srv *Server) resolve(ctx context.Context, scope *selectionSetScope, op *gq
 	if finisher, ok := interfaceValueForAssertions(value).(OperationFinisher); ok {
 		err := finisher.FinishOperation(ctx, &OperationDetails{
 			SelectionSet: sel,
-			HasErrors: len(resultErrs) > 0,
+			HasErrors:    len(resultErrs) > 0,
 		})
 		if err != nil {
 			// Intentionally making the returned error opaque to avoid interference in
