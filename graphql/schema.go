@@ -214,6 +214,10 @@ func buildTypeMap(source string, opts schemaOptions, doc *gqlang.Document) (map[
 			typeMap[name.Value] = newObjectType(&objectType{
 				name: name.Value,
 			}, opts.description(t.Object.Description))
+		case t.Union != nil:
+			typeMap[name.Value] = newUnionType(&unionType{
+				name: name.Value,
+			}, opts.description(t.Union.Description))
 		case t.InputObject != nil:
 			typeMap[name.Value] = newInputObjectType(&inputObjectType{
 				name: name.Value,
@@ -228,6 +232,10 @@ func buildTypeMap(source string, opts schemaOptions, doc *gqlang.Document) (map[
 		switch {
 		case defn.Type.Object != nil:
 			if err := fillObjectTypeFields(source, opts, typeMap, defn.Type.Object); err != nil {
+				return nil, err
+			}
+		case defn.Type.Union != nil:
+			if err := fillUnionTypeFields(source, opts, typeMap, defn.Type.Union); err != nil {
 				return nil, err
 			}
 		case defn.Type.InputObject != nil:
@@ -297,6 +305,26 @@ func fillObjectTypeFields(source string, opts schemaOptions, typeMap map[string]
 			return err
 		}
 		info.fields = append(info.fields, f)
+	}
+	return nil
+}
+
+func fillUnionTypeFields(source string, opts schemaOptions, typeMap map[string]*gqlType, u *gqlang.UnionTypeDefinition) error {
+	info := typeMap[u.Name.Value].union
+	usedTypes := make(map[*gqlType]struct{}, len(u.MemberTypes))
+	for _, memberType := range u.MemberTypes {
+		typ := resolveTypeRef(typeMap, &gqlang.TypeRef{Named: memberType})
+		if typ == nil {
+			return xerrors.Errorf("%v: undefined type %v", memberType.Start.ToPosition(source), memberType)
+		}
+		if _, used := usedTypes[typ]; used {
+			return xerrors.Errorf("%v: type %v used multiple types", memberType.Start.ToPosition(source), memberType)
+		}
+		if !typ.isObject() {
+			return xerrors.Errorf("%v: type %v is not an object", memberType.Start.ToPosition(source), memberType)
+		}
+		info.possibleTypes = append(info.possibleTypes, typ)
+		usedTypes[typ] = struct{}{}
 	}
 	return nil
 }
