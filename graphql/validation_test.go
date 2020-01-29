@@ -37,6 +37,7 @@ func TestValidate(t *testing.T) {
 			findDog(complex: ComplexInput): Dog
 			dogById(id: ID!): Dog
 			booleanList(booleanListArg: [Boolean!]): Boolean
+			catOrDog: CatOrDog
 		}
 
 		enum DogCommand { SIT, DOWN, HEEL }
@@ -50,6 +51,11 @@ func TestValidate(t *testing.T) {
 			doesKnowCommand(dogCommand: DogCommand): Boolean!
 			isHousetrained(atOtherHomes: Boolean): Boolean!
 			owner: Human
+		}
+
+		type Alien {
+			name: String!
+			homePlanet: String
 		}
 
 		type Human {
@@ -66,6 +72,10 @@ func TestValidate(t *testing.T) {
 			doesKnowCommand(catCommand: CatCommand!): Boolean!
 			meowVolume: Int
 		}
+
+		union CatOrDog = Cat | Dog
+		union DogOrHuman = Dog | Human
+		union HumanOrAlien = Human | Alien
 
 		type Mutation {
 			mutateDog: ID
@@ -267,6 +277,42 @@ func TestValidate(t *testing.T) {
 					Path: []PathSegment{
 						{Field: "dog"},
 						{Field: "foo"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by http://spec.graphql.org/June2018/#example-245fa
+			name: "FieldSelection/Union/IndirectFieldSelection",
+			request: `
+				{
+					catOrDog {
+						__typename
+						... on Dog {
+							barkVolume
+						}
+					}
+				}`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by http://spec.graphql.org/June2018/#example-245fa
+			name: "FieldSelection/Union/DirectFieldSelection",
+			request: `
+				{
+					catOrDog {
+						__typename
+						barkVolume
+					}
+				}`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{5, 49},
+					},
+					Path: []PathSegment{
+						{Field: "catOrDog"},
+						{Field: "barkVolume"},
 					},
 				},
 			},
@@ -1055,6 +1101,110 @@ func TestValidate(t *testing.T) {
 					},
 					Path: []PathSegment{
 						{Field: "dog"},
+					},
+				},
+			},
+		},
+		{
+			// http://spec.graphql.org/June2018/#example-41843
+			name: "FragmentSpreads/Types/AbstractInObjectScope/Union",
+			request: `
+				fragment catOrDogNameFragment on CatOrDog {
+					... on Cat {
+						meowVolume
+					}
+				}
+
+				fragment unionWithObjectFragment on Dog {
+					...catOrDogNameFragment
+				}
+
+				# Use fragment in query to avoid errors.
+				{ dog { ...unionWithObjectFragment } }
+			`,
+			wantErrors: nil,
+		},
+		{
+			// http://spec.graphql.org/June2018/#example-85110
+			name: "FragmentSpreads/Types/ObjectInAbstractScope/Union",
+			request: `
+				fragment catOrDogFragment on CatOrDog {
+					... on Cat {
+						meowVolume
+					}
+				}
+
+				# Use fragment in query to avoid errors.
+				{ catOrDog { ...catOrDogFragment } }
+			`,
+			wantErrors: nil,
+		},
+		{
+			name: "FragmentSpreads/Types/ObjectInAbstractScope/UnionFail",
+			request: `
+				fragment catOrDogFragment on CatOrDog {
+					... on Human {
+						name
+					}
+				}
+
+				# Use fragment in query to avoid errors.
+				{ catOrDog { ...catOrDogFragment } }
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 48},
+					},
+					Path: []PathSegment{
+						{Field: "catOrDog"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by http://spec.graphql.org/June2018/#example-dc875
+			name: "FragmentSpreads/Types/AbstractInAbstractScope/Union",
+			request: `
+				fragment catOrDogFragment on CatOrDog {
+					...dogOrHumanFragment
+				}
+
+				fragment dogOrHumanFragment on DogOrHuman {
+					... on Dog {
+						barkVolume
+					}
+				}
+
+				# Use fragment in query to avoid errors.
+				{ catOrDog { ...catOrDogFragment } }
+			`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by http://spec.graphql.org/June2018/#example-c9c63
+			name: "FragmentSpreads/Types/AbstractInAbstractScope/UnionFail",
+			request: `
+				fragment catOrDogFragment on CatOrDog {
+					...humanOrAlienFragment
+				}
+
+				fragment humanOrAlienFragment on HumanOrAlien {
+					... on Human {
+						name
+					}
+				}
+
+				# Use fragment in query to avoid errors.
+				{ catOrDog { ...catOrDogFragment } }
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{3, 44},
+					},
+					Path: []PathSegment{
+						{Field: "catOrDog"},
 					},
 				},
 			},
