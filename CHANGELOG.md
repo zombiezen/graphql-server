@@ -5,7 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased][]
 
-[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.7.0...HEAD
+
+## [0.7.0][]
+
+The 0.7 release added support for [union types][] and [OpenCensus][] trace
+information.
+
+[0.7.0]: https://github.com/zombiezen/graphql-server/releases/tag/v0.7.0
+[OpenCensus]: https://opencensus.io/
+[union types]: https://graphql.org/learn/schema/#union-types
 
 ### Added
 
