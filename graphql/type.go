@@ -16,7 +16,9 @@
 
 package graphql
 
-import "sync"
+import (
+	"sync"
+)
 
 // gqlType represents a GraphQL type.
 //
@@ -346,14 +348,14 @@ func (typ *gqlType) isNullable() bool {
 }
 
 func (typ *gqlType) toNullable() *gqlType {
-	if typ.isNullable() {
+	if typ == nil || typ.isNullable() {
 		return typ
 	}
 	return typ.nullVariant
 }
 
 func (typ *gqlType) toNonNullable() *gqlType {
-	if !typ.isNullable() {
+	if typ == nil || !typ.isNullable() {
 		return typ
 	}
 	return typ.nullVariant
@@ -415,8 +417,14 @@ func (typ *gqlType) selectionSetType() *gqlType {
 	return typ
 }
 
-// possibleTypes returns the set of types that an object of this type could be
-// at runtime. All types are normalized to nullable types.
+// isAbstract reports whether the type is a union or interface.
+func (typ *gqlType) isAbstract() bool {
+	// TODO(someday): Or interface.
+	return typ.isUnion()
+}
+
+// possibleTypes returns the set of non-abstract types that an object of this
+// type could be at runtime. All types are normalized to nullable types.
 // See https://graphql.github.io/graphql-spec/June2018/#GetPossibleTypes%28%29
 func (typ *gqlType) possibleTypes() map[*gqlType]struct{} {
 	// TODO(someday): Add more for interface.

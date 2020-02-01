@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -1624,6 +1625,225 @@ func (f fieldResolverFunc) ResolveField(ctx context.Context, req FieldRequest) (
 
 func (f fieldResolverFunc) Foo() (string, error) {
 	return "WRONG", xerrors.New("this method should never be called")
+}
+
+func TestUnion(t *testing.T) {
+	t.Parallel()
+
+	schema, err := ParseSchema(`
+		type Query {
+			fooOrBar: FooOrBar
+			fooOrFoo: FooOrFoo
+		}
+
+		union FooOrBar = UnionFoo | Bar
+
+		type UnionFoo {
+			foo: String
+		}
+
+		type Bar {
+			bar: String
+		}
+
+		union FooOrFoo = UnionFoo | MyFoo
+
+		type MyFoo {
+			foo(arg: String): String
+		}
+	`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const fooOrBarQuery = `{ fooOrBar { __typename, ... on UnionFoo { foo }, ... on Bar { bar } } }`
+
+	t.Run("StaticTypeName", func(t *testing.T) {
+		q := &unionQuery{fooOrBar: &UnionFoo{Foo: "xyzzy"}}
+		srv, err := NewServer(schema, q, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := srv.Execute(ctx, Request{Query: fooOrBarQuery})
+		if len(resp.Errors) > 0 {
+			t.Fatal(resp.Errors)
+		}
+
+		q.mu.Lock()
+		set := q.set
+		q.mu.Unlock()
+		if !set.Has("foo") {
+			t.Error(`set.Has("foo") = false; want true`)
+		}
+		if !set.Has("bar") {
+			t.Error(`set.Has("bar") = false; want true`)
+		}
+
+		got := resp.Data.ValueFor("fooOrBar").GoValue()
+		want := map[string]interface{}{
+			"__typename": "UnionFoo",
+			"foo":        "xyzzy",
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("fooOrBar (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("DynamicTypeName", func(t *testing.T) {
+		q := &unionQuery{
+			fooOrBar: &DynamicUnion{
+				typename: "Bar",
+				Foo:      "BORK",
+				Bar:      "xyzzy",
+			},
+		}
+		srv, err := NewServer(schema, q, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := srv.Execute(ctx, Request{Query: fooOrBarQuery})
+		if len(resp.Errors) > 0 {
+			t.Fatal(resp.Errors)
+		}
+
+		q.mu.Lock()
+		set := q.set
+		q.mu.Unlock()
+		if !set.Has("foo") {
+			t.Error(`set.Has("foo") = false; want true`)
+		}
+		if !set.Has("bar") {
+			t.Error(`set.Has("bar") = false; want true`)
+		}
+
+		got := resp.Data.ValueFor("fooOrBar").GoValue()
+		want := map[string]interface{}{
+			"__typename": "Bar",
+			"bar":        "xyzzy",
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("fooOrBar (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("OverlappingFieldNames", func(t *testing.T) {
+		const fooOrFooQuery = `{ fooOrFoo {` +
+			`__typename, ` +
+			`... on UnionFoo { foo }, ` +
+			`... on MyFoo { foo(arg: "xyzzy") }, ` +
+			`} }`
+		t.Run("WithoutArg", func(t *testing.T) {
+			q := &unionQuery{
+				fooOrFoo: UnionFoo{Foo: "static"},
+			}
+			srv, err := NewServer(schema, q, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp := srv.Execute(ctx, Request{Query: fooOrFooQuery})
+			if len(resp.Errors) > 0 {
+				t.Fatal(resp.Errors)
+			}
+
+			q.mu.Lock()
+			set := q.set
+			q.mu.Unlock()
+			if !set.Has("foo") {
+				t.Error(`set.Has("foo") = false; want true`)
+			}
+
+			got := resp.Data.ValueFor("fooOrFoo").GoValue()
+			want := map[string]interface{}{
+				"__typename": "UnionFoo",
+				"foo":        "static",
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("fooOrFoo (-want +got):\n%s", diff)
+			}
+		})
+
+		t.Run("WithArg", func(t *testing.T) {
+			t.Skip("TODO(now): Need to fix")
+			q := &unionQuery{
+				fooOrFoo: myFoo{},
+			}
+			srv, err := NewServer(schema, q, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp := srv.Execute(ctx, Request{Query: fooOrFooQuery})
+			if len(resp.Errors) > 0 {
+				t.Fatal(resp.Errors)
+			}
+
+			q.mu.Lock()
+			set := q.set
+			q.mu.Unlock()
+			if !set.Has("foo") {
+				t.Error(`set.Has("foo") = false; want true`)
+			}
+
+			got := resp.Data.ValueFor("fooOrFoo").GoValue()
+			want := map[string]interface{}{
+				"__typename": "MyFoo",
+				"foo":        "xyzzy",
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("fooOrFoo (-want +got):\n%s", diff)
+			}
+		})
+	})
+}
+
+type unionQuery struct {
+	fooOrBar interface{}
+	fooOrFoo interface{}
+
+	mu  sync.Mutex
+	set *SelectionSet
+}
+
+func (q *unionQuery) FooOrBar(set *SelectionSet) interface{} {
+	q.mu.Lock()
+	q.set = set
+	q.mu.Unlock()
+	return q.fooOrBar
+}
+
+func (q *unionQuery) FooOrFoo(set *SelectionSet) interface{} {
+	q.mu.Lock()
+	q.set = set
+	q.mu.Unlock()
+	return q.fooOrFoo
+}
+
+type UnionFoo struct {
+	Foo string
+}
+
+type DynamicUnion struct {
+	typename string
+
+	Foo string
+	Bar string
+}
+
+func (u *DynamicUnion) GraphQLType() string {
+	return u.typename
+}
+
+type myFoo struct{}
+
+func (myFoo) GraphQLType() string {
+	return "MyFoo"
+}
+
+type myFooArgs struct {
+	Arg string
+}
+
+func (myFoo) Foo(args myFooArgs) string {
+	return args.Arg
 }
 
 func newString(s string) *string { return &s }
