@@ -134,7 +134,7 @@ func (set *SelectionSet) addField(s *selectionSetScope, typ *gqlType, f *gqlang.
 		fieldInfo = typ.obj.field(name)
 	}
 
-	field := set.find(key)
+	field := set.find(s.typeCondition, key)
 	var errs []error
 	if field == nil {
 		// Validation rejects any fields that have the same key but differing
@@ -156,8 +156,18 @@ func (set *SelectionSet) addField(s *selectionSetScope, typ *gqlType, f *gqlang.
 		if fieldInfo.typ.selectionSetType() != nil {
 			field.sub = new(SelectionSet)
 		}
+	} else {
+		// Add to type condition.
+		if len(s.typeCondition) == 0 || len(field.typeCondition) == 0 {
+			field.typeCondition = nil
+		} else {
+			for cond := range s.typeCondition {
+				field.typeCondition[cond] = struct{}{}
+			}
+		}
 	}
 
+	// Merge selection set of subsequent occurrences of field.
 	if fieldSelType := fieldInfo.typ.selectionSetType(); fieldSelType != nil {
 		subErrs := field.sub.merge(s.withTypeCondition(nil), fieldSelType, f.SelectionSet)
 		for _, err := range subErrs {
@@ -196,16 +206,29 @@ func (set *SelectionSet) forType(typeName string) *SelectionSet {
 	return &SelectionSet{fields: fields}
 }
 
-func (set *SelectionSet) find(key string) *SelectedField {
+func (set *SelectionSet) find(typeCondition map[string]struct{}, key string) *SelectedField {
 	if set == nil {
 		return nil
 	}
 	for _, f := range set.fields {
-		if f.key == key {
-			return f
+		if f.key != key {
+			continue
 		}
+		if len(f.typeCondition) > 0 && len(typeCondition) > 0 && !typeConditionsOverlap(f.typeCondition, typeCondition) {
+			continue
+		}
+		return f
 	}
 	return nil
+}
+
+func typeConditionsOverlap(cond1, cond2 map[string]struct{}) bool {
+	for k := range cond1 {
+		if _, ok := cond2[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Len returns the number of fields in the selection set.

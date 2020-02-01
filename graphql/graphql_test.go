@@ -1763,7 +1763,6 @@ func TestUnion(t *testing.T) {
 		})
 
 		t.Run("WithArg", func(t *testing.T) {
-			t.Skip("TODO(now): Need to fix")
 			q := &unionQuery{
 				fooOrFoo: myFoo{},
 			}
