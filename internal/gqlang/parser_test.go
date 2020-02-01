@@ -488,6 +488,31 @@ input ItemInput {
 			},
 		},
 		{
+			name:  "UnionType",
+			input: `union SearchResult = Photo | Person`,
+			want: &Document{
+				Definitions: []*Definition{
+					{Type: &TypeDefinition{Union: &UnionTypeDefinition{
+						Keyword: 0,
+						Name: &Name{
+							Start: 6,
+							Value: "SearchResult",
+						},
+						MemberTypes: []*Name{
+							{
+								Start: 21,
+								Value: "Photo",
+							},
+							{
+								Start: 29,
+								Value: "Person",
+							},
+						},
+					}}},
+				},
+			},
+		},
+		{
 			name: "InputObjectLiteral",
 			input: `{
 	findDog(complex: { name: "Fido" })

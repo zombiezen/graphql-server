@@ -36,6 +36,15 @@ type selectionSetScope struct {
 	doc       *gqlang.Document // for the fragments
 	types     map[string]*gqlType
 	variables map[string]Value
+
+	typeCondition map[string]struct{}
+}
+
+func (s *selectionSetScope) withTypeCondition(c map[string]struct{}) *selectionSetScope {
+	s2 := new(selectionSetScope)
+	*s2 = *s
+	s2.typeCondition = c
+	return s2
 }
 
 // newSelectionSet returns a new selection set from the request's AST.
@@ -68,21 +77,40 @@ func (set *SelectionSet) merge(s *selectionSetScope, typ *gqlType, ast *gqlang.S
 			name := sel.FragmentSpread.Name.Value
 			frag := s.doc.FindFragment(name)
 			fragType := s.types[frag.Type.Name.Value]
-			mergeErrs := set.merge(s, fragType, frag.SelectionSet)
+			subScope := s
+			if typ.isAbstract() {
+				subScope = s.withTypeCondition(fragmentTypeCondition(typ, fragType))
+			}
+			mergeErrs := set.merge(subScope, fragType, frag.SelectionSet)
 			for _, err := range mergeErrs {
 				errs = append(errs, xerrors.Errorf("fragment %s: %w", name, err))
 			}
 		case sel.InlineFragment != nil:
 			fragType := typ
+			subScope := s
 			if sel.InlineFragment.Type != nil {
 				fragType = s.types[sel.InlineFragment.Type.Name.Value]
+				if typ.isAbstract() {
+					subScope = s.withTypeCondition(fragmentTypeCondition(typ, fragType))
+				}
 			}
-			errs = append(errs, set.merge(s, fragType, sel.InlineFragment.SelectionSet)...)
+			errs = append(errs, set.merge(subScope, fragType, sel.InlineFragment.SelectionSet)...)
 		default:
 			panic("unknown selection type")
 		}
 	}
 	return errs
+}
+
+func fragmentTypeCondition(parentType, fragType *gqlType) map[string]struct{} {
+	parentPossible := parentType.possibleTypes()
+	possible := make(map[string]struct{})
+	for p := range fragType.possibleTypes() {
+		if _, inParent := parentPossible[p]; inParent {
+			possible[p.Name().String()] = struct{}{}
+		}
+	}
+	return possible
 }
 
 func (set *SelectionSet) addField(s *selectionSetScope, typ *gqlType, f *gqlang.Field) []error {
@@ -91,10 +119,9 @@ func (set *SelectionSet) addField(s *selectionSetScope, typ *gqlType, f *gqlang.
 	if f.Alias != nil {
 		key = f.Alias.Value
 	}
-	// TODO(someday): Make generic for interface or union.
-	fieldInfo := typ.obj.field(name)
 	// Validation determines whether this is a valid reference to the
 	// reserved fields.
+	var fieldInfo *objectTypeField
 	switch name {
 	case typeNameFieldName:
 		fieldInfo = typeNameField()
@@ -102,18 +129,22 @@ func (set *SelectionSet) addField(s *selectionSetScope, typ *gqlType, f *gqlang.
 		fieldInfo = schemaField()
 	case typeByNameFieldName:
 		fieldInfo = typeByNameField()
+	default:
+		// TODO(someday): Make generic for interface.
+		fieldInfo = typ.obj.field(name)
 	}
 
-	field := set.find(key)
+	field := set.find(s.typeCondition, key)
 	var errs []error
 	if field == nil {
 		// Validation rejects any fields that have the same key but differing
 		// invocations. Only evaluate the arguments from the first one, then merge
 		// the selection set of subsequent ones.
 		field = &SelectedField{
-			name: name,
-			key:  key,
-			loc:  astPositionToLocation(f.Start().ToPosition(s.source)),
+			typeCondition: s.typeCondition,
+			name:          name,
+			key:           key,
+			loc:           astPositionToLocation(f.Start().ToPosition(s.source)),
 		}
 		set.fields = append(set.fields, field)
 
@@ -125,10 +156,20 @@ func (set *SelectionSet) addField(s *selectionSetScope, typ *gqlType, f *gqlang.
 		if fieldInfo.typ.selectionSetType() != nil {
 			field.sub = new(SelectionSet)
 		}
+	} else {
+		// Add to type condition.
+		if len(s.typeCondition) == 0 || len(field.typeCondition) == 0 {
+			field.typeCondition = nil
+		} else {
+			for cond := range s.typeCondition {
+				field.typeCondition[cond] = struct{}{}
+			}
+		}
 	}
 
+	// Merge selection set of subsequent occurrences of field.
 	if fieldSelType := fieldInfo.typ.selectionSetType(); fieldSelType != nil {
-		subErrs := field.sub.merge(s, fieldSelType, f.SelectionSet)
+		subErrs := field.sub.merge(s.withTypeCondition(nil), fieldSelType, f.SelectionSet)
 		for _, err := range subErrs {
 			errs = append(errs, wrapFieldError(field.key, field.loc, err))
 		}
@@ -136,16 +177,58 @@ func (set *SelectionSet) addField(s *selectionSetScope, typ *gqlType, f *gqlang.
 	return errs
 }
 
-func (set *SelectionSet) find(key string) *SelectedField {
+// forType returns a selection set that includes only the fields applicable for
+// the given type and without any type conditions.
+func (set *SelectionSet) forType(typeName string) *SelectionSet {
+	if set == nil {
+		return nil
+	}
+	conditional := false
+	for _, f := range set.fields {
+		if len(f.typeCondition) > 0 {
+			conditional = true
+			break
+		}
+	}
+	if !conditional {
+		return set
+	}
+	fields := make([]*SelectedField, 0, len(set.fields))
+	for _, f := range set.fields {
+		if len(f.typeCondition) == 0 {
+			fields = append(fields, f)
+			continue
+		}
+		if _, ok := f.typeCondition[typeName]; ok {
+			fields = append(fields, f)
+		}
+	}
+	return &SelectionSet{fields: fields}
+}
+
+func (set *SelectionSet) find(typeCondition map[string]struct{}, key string) *SelectedField {
 	if set == nil {
 		return nil
 	}
 	for _, f := range set.fields {
-		if f.key == key {
-			return f
+		if f.key != key {
+			continue
 		}
+		if len(f.typeCondition) > 0 && len(typeCondition) > 0 && !typeConditionsOverlap(f.typeCondition, typeCondition) {
+			continue
+		}
+		return f
 	}
 	return nil
+}
+
+func typeConditionsOverlap(cond1, cond2 map[string]struct{}) bool {
+	for k := range cond1 {
+		if _, ok := cond2[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Len returns the number of fields in the selection set.
@@ -300,6 +383,9 @@ func (set *SelectionSet) FieldsWithName(name string) []*SelectedField {
 
 // SelectedField is a field in a selection set.
 type SelectedField struct {
+	// typeCondition is non-empty if the type is a union or interface and the
+	// field will only be present if the object type is in the set.
+	typeCondition map[string]struct{}
 	// key is the response object key to be used. Usually the same as name.
 	key string
 	// name is the object field name.
@@ -336,4 +422,13 @@ func (f *SelectedField) Arg(name string) Value {
 // have one.
 func (f *SelectedField) SelectionSet() *SelectionSet {
 	return f.sub
+}
+
+// ForType reports whether the field would be selected on the given type.
+func (f *SelectedField) ForType(typeName string) bool {
+	if len(f.typeCondition) == 0 {
+		return true
+	}
+	_, ok := f.typeCondition[typeName]
+	return ok
 }

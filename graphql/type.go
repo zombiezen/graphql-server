@@ -16,7 +16,9 @@
 
 package graphql
 
-import "sync"
+import (
+	"sync"
+)
 
 // gqlType represents a GraphQL type.
 //
@@ -29,6 +31,7 @@ type gqlType struct {
 	enum     *enumType
 	listElem *gqlType
 	obj      *objectType
+	union    *unionType
 	input    *inputObjectType
 	nonNull  bool
 
@@ -92,6 +95,11 @@ func (obj *objectType) field(name string) *objectTypeField {
 	return nil
 }
 
+type unionType struct {
+	name          string
+	possibleTypes []*gqlType // all nullable object types
+}
+
 type inputObjectType struct {
 	name   string
 	fields inputValueDefinitionList
@@ -151,6 +159,21 @@ func newObjectType(info *objectType, description string) *gqlType {
 	return nullable
 }
 
+func newUnionType(info *unionType, description string) *gqlType {
+	nullable := &gqlType{
+		union:       info,
+		description: description,
+	}
+	nonNullable := &gqlType{
+		union:       info,
+		description: description,
+		nonNull:     true,
+	}
+	nullable.nullVariant = nonNullable
+	nonNullable.nullVariant = nullable
+	return nullable
+}
+
 func newInputObjectType(info *inputObjectType, description string) *gqlType {
 	nullable := &gqlType{
 		input:       info,
@@ -194,6 +217,8 @@ func (typ *gqlType) String() string {
 		return "[" + typ.listElem.String() + "]" + suffix
 	case typ.isObject():
 		return typ.obj.name + suffix
+	case typ.isUnion():
+		return typ.union.name + suffix
 	case typ.isInputObject():
 		return typ.input.name + suffix
 	default:
@@ -210,6 +235,8 @@ func (typ *gqlType) Kind() string {
 		return "SCALAR"
 	case typ.isObject():
 		return "OBJECT"
+	case typ.isUnion():
+		return "UNION"
 	case typ.isEnum():
 		return "ENUM"
 	case typ.isInputObject():
@@ -231,6 +258,8 @@ func (typ *gqlType) Name() NullString {
 		return NullString{S: typ.scalar, Valid: true}
 	case typ.isObject():
 		return NullString{S: typ.obj.name, Valid: true}
+	case typ.isUnion():
+		return NullString{S: typ.union.name, Valid: true}
 	case typ.isEnum():
 		return NullString{S: typ.enum.name, Valid: true}
 	case typ.isInputObject():
@@ -267,9 +296,15 @@ func (typ *gqlType) Interfaces() *[]interface{} {
 	return new([]interface{})
 }
 
-// PossibleTypes is not implemented.
-func (typ *gqlType) PossibleTypes() *[]interface{} {
-	return nil
+// PossibleTypes returns the list of types that a union or interface can represent.
+func (typ *gqlType) PossibleTypes() *[]*gqlType {
+	// TODO(someday): Interface.
+	switch {
+	case typ.isUnion():
+		return &typ.union.possibleTypes
+	default:
+		return nil
+	}
 }
 
 // EnumValues returns the list of permitted values for an enumeration type.
@@ -313,14 +348,14 @@ func (typ *gqlType) isNullable() bool {
 }
 
 func (typ *gqlType) toNullable() *gqlType {
-	if typ.isNullable() {
+	if typ == nil || typ.isNullable() {
 		return typ
 	}
 	return typ.nullVariant
 }
 
 func (typ *gqlType) toNonNullable() *gqlType {
-	if !typ.isNullable() {
+	if typ == nil || !typ.isNullable() {
 		return typ
 	}
 	return typ.nullVariant
@@ -342,6 +377,10 @@ func (typ *gqlType) isObject() bool {
 	return typ.obj != nil
 }
 
+func (typ *gqlType) isUnion() bool {
+	return typ.union != nil
+}
+
 func (typ *gqlType) isInputObject() bool {
 	return typ.input != nil
 }
@@ -361,8 +400,8 @@ func (typ *gqlType) isOutputType() bool {
 	for typ.isList() {
 		typ = typ.listElem
 	}
-	// TODO(someday): Interface or union.
-	return typ.isScalar() || typ.isEnum() || typ.isObject()
+	// TODO(someday): Or interface.
+	return typ.isScalar() || typ.isEnum() || typ.isObject() || typ.isUnion()
 }
 
 // selectionSetType returns the type used for selection sets or nil if the type
@@ -371,19 +410,34 @@ func (typ *gqlType) selectionSetType() *gqlType {
 	for typ.isList() {
 		typ = typ.listElem
 	}
-	// TODO(someday): Interface or union.
-	if !typ.isObject() {
+	// TODO(someday): Permit interface.
+	if !typ.isObject() && !typ.isUnion() {
 		return nil
 	}
 	return typ
 }
 
-// possibleTypes returns the set of types that an object of this type could be
-// at runtime. All types are normalized to nullable types.
+// isAbstract reports whether the type is a union or interface.
+func (typ *gqlType) isAbstract() bool {
+	// TODO(someday): Or interface.
+	return typ.isUnion()
+}
+
+// possibleTypes returns the set of non-abstract types that an object of this
+// type could be at runtime. All types are normalized to nullable types.
 // See https://graphql.github.io/graphql-spec/June2018/#GetPossibleTypes%28%29
 func (typ *gqlType) possibleTypes() map[*gqlType]struct{} {
-	// TODO(someday): This only applies to objects. Add more for interface or union.
-	return map[*gqlType]struct{}{typ.toNullable(): {}}
+	// TODO(someday): Add more for interface.
+	switch {
+	case typ.isUnion():
+		possible := make(map[*gqlType]struct{}, len(typ.union.possibleTypes))
+		for _, t := range typ.union.possibleTypes {
+			possible[t] = struct{}{}
+		}
+		return possible
+	default:
+		return map[*gqlType]struct{}{typ.toNullable(): {}}
+	}
 }
 
 // areTypesCompatible reports if a value variableType can be passed to a usage

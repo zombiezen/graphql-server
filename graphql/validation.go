@@ -382,7 +382,7 @@ func validateSelectionSet(v *validationScope, isRootQuery bool, typ *gqlType, se
 				continue
 			}
 			frag.used = true
-			condTyp, condErr := validateFragmentTypeCondition(v, typ, frag.Type)
+			condTyp, condErr := validateFragmentTypeCondition(v, typ, name.Start, frag.Type)
 			if condErr != nil {
 				errs = append(errs, xerrors.Errorf("fragment %s: %w", name.Value, condErr))
 				continue
@@ -393,15 +393,22 @@ func validateSelectionSet(v *validationScope, isRootQuery bool, typ *gqlType, se
 			}
 		case selection.InlineFragment != nil:
 			cond := selection.InlineFragment.Type
-			condTyp, condErr := validateFragmentTypeCondition(v, typ, cond)
-			if condErr != nil {
-				errs = append(errs, condErr)
-				continue
+			condTyp := typ
+			if cond != nil {
+				var condErr error
+				condTyp, condErr = validateFragmentTypeCondition(v, typ, cond.Name.Start, cond)
+				if condErr != nil {
+					errs = append(errs, condErr)
+					continue
+				}
 			}
 			errs = append(errs, validateSelectionSet(v, isRootQuery, condTyp, selection.InlineFragment.SelectionSet)...)
 		default:
 			panic("unknown selection type")
 		}
+	}
+	if len(errs) > 0 {
+		return errs
 	}
 	var groups fieldGroups
 	groups.addSet(v, typ, set)
@@ -411,7 +418,7 @@ func validateSelectionSet(v *validationScope, isRootQuery bool, typ *gqlType, se
 	return errs
 }
 
-func validateFragmentTypeCondition(v *validationScope, parent *gqlType, cond *gqlang.TypeCondition) (*gqlType, error) {
+func validateFragmentTypeCondition(v *validationScope, parent *gqlType, parentPos gqlang.Pos, cond *gqlang.TypeCondition) (*gqlType, error) {
 	if cond == nil {
 		return parent, nil
 	}
@@ -445,7 +452,7 @@ func validateFragmentTypeCondition(v *validationScope, parent *gqlType, cond *gq
 		return nil, &ResponseError{
 			Message: fmt.Sprintf("objects of type %v can never be a %s", parent.toNullable(), typName),
 			Locations: []Location{
-				astPositionToLocation(cond.Name.Start.ToPosition(v.source)),
+				astPositionToLocation(parentPos.ToPosition(v.source)),
 			},
 		}
 	}
@@ -453,18 +460,23 @@ func validateFragmentTypeCondition(v *validationScope, parent *gqlType, cond *gq
 }
 
 func validateField(v *validationScope, isRootQuery bool, typ *gqlType, field *gqlang.Field) []error {
-	fieldInfo := typ.obj.field(field.Name.Value)
-	if field.Name.Value == typeNameFieldName {
+	var fieldInfo *objectTypeField
+	switch field.Name.Value {
+	case typeNameFieldName:
 		fieldInfo = typeNameField()
-	} else if isRootQuery {
-		// Top-level queries have a few extra fields for introspection:
-		// https://graphql.github.io/graphql-spec/June2018/#sec-Schema-Introspection
-		switch field.Name.Value {
-		case typeByNameFieldName:
+	// Top-level queries have a few extra fields for introspection:
+	// https://graphql.github.io/graphql-spec/June2018/#sec-Schema-Introspection
+	case typeByNameFieldName:
+		if isRootQuery {
 			fieldInfo = typeByNameField()
-		case schemaFieldName:
+		}
+	case schemaFieldName:
+		if isRootQuery {
 			fieldInfo = schemaField()
 		}
+	}
+	if fieldInfo == nil && typ.obj != nil {
+		fieldInfo = typ.obj.field(field.Name.Value)
 	}
 	loc := astPositionToLocation(field.Name.Start.ToPosition(v.source))
 	if fieldInfo == nil {
@@ -643,6 +655,9 @@ func (groups *fieldGroups) addSet(v *validationScope, typ *gqlType, set *gqlang.
 	for _, sel := range set.Sel {
 		switch {
 		case sel.Field != nil:
+			if typ.obj == nil {
+				continue
+			}
 			if info := typ.obj.field(sel.Field.Name.Value); info == nil {
 				continue
 			}

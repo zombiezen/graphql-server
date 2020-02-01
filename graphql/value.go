@@ -75,7 +75,19 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 	// Since this function is recursive, caller must prepend error operation.
 
 	goValue = unwrapPointer(goValue)
-	if !goValue.IsValid() || isGraphQLNull(interfaceValueForAssertions(goValue)) {
+	if !goValue.IsValid() {
+		if !typ.isNullable() {
+			return Value{typ: typ}, []error{xerrors.Errorf("cannot convert nil to %v", typ)}
+		}
+		return Value{typ: typ, val: nil}, nil
+	}
+	resolvedType, err := resolveDynamicType(schema.types, goValue, typ)
+	if err != nil {
+		return Value{typ: typ}, []error{err}
+	}
+	typ = resolvedType
+	sel = sel.forType(typ.Name().String())
+	if isGraphQLNull(interfaceValueForAssertions(goValue)) {
 		if !typ.isNullable() {
 			return Value{typ: typ}, []error{xerrors.Errorf("cannot convert nil to %v", typ)}
 		}
@@ -145,6 +157,66 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 	default:
 		return Value{typ: typ}, []error{xerrors.Errorf("unhandled type: %v", typ)}
 	}
+}
+
+// A type implementing Typer controls which GraphQL type its value represents.
+// GraphQLType must be safe to call from multiple goroutines. GraphQLType must
+// return the same value for the duration of a request.
+type Typer interface {
+	GraphQLType() string
+}
+
+func resolveDynamicType(types map[string]*gqlType, goValue reflect.Value, typ *gqlType) (*gqlType, error) {
+	if typer, ok := interfaceValueForAssertions(goValue).(Typer); ok {
+		dynTypeName := typer.GraphQLType()
+		dynType := types[dynTypeName].toNullable()
+		if dynType == nil {
+			return typ, xerrors.Errorf("Go value of type %v has unknown dynamic type %q", goValue.Type(), dynTypeName)
+		}
+		// possibleTypes only returns concrete types (normalized to nullable).
+		// This check prevents using an improper or abstract type.
+		if _, permitted := typ.possibleTypes()[dynType]; !permitted {
+			return typ, xerrors.Errorf("GraphQL type %v not permitted as %v", dynType, typ)
+		}
+		if dynType != typ.toNullable() {
+			if !typ.isNullable() {
+				return dynType.toNonNullable(), nil
+			}
+			return dynType, nil
+		}
+		return typ, nil
+	}
+	if !typ.isAbstract() {
+		return typ, nil
+	}
+	// Try to use Go type name.
+	goType := goValue.Type()
+	for goType.Name() == "" && goType.Kind() == reflect.Ptr {
+		goType = goType.Elem()
+	}
+	dynType := findTypeCaseInsensitive(types, goType.Name())
+	if dynType == nil {
+		return typ, xerrors.Errorf("%v has no known GraphQL type but used as %v (missing a GraphQLType method?)", goValue.Type(), typ)
+	}
+	// possibleTypes only returns concrete types (normalized to nullable).
+	// This check prevents using an improper or abstract type.
+	if _, permitted := typ.possibleTypes()[dynType]; !permitted {
+		return typ, xerrors.Errorf("GraphQL type %v not permitted as %v", dynType, typ)
+	}
+	if !typ.isNullable() {
+		return dynType.toNonNullable(), nil
+	}
+	return dynType, nil
+}
+
+func findTypeCaseInsensitive(types map[string]*gqlType, name string) *gqlType {
+	lower := strings.ToLower(name)
+	for n, t := range types {
+		if lower == strings.ToLower(n) {
+			return t
+		}
+	}
+	return nil
 }
 
 // coerceArgumentValues uses the algorithm in

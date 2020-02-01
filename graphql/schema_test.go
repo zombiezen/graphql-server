@@ -135,6 +135,55 @@ func TestParseSchema(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// https://spec.graphql.org/June2018/#example-255de
+			name: "UnionType",
+			source: `
+				union SearchResult = Photo | Person
+
+				type Person {
+					name: String
+					age: Int
+				}
+
+				type Photo {
+					height: Int
+					width: Int
+				}
+
+				type Query {
+					firstSearchResult: SearchResult
+				}
+			`,
+			wantErr: false,
+		},
+		{
+			name: "UnionType/Scalar",
+			source: `
+				union SearchResult = String
+
+				type Query {
+					firstSearchResult: SearchResult
+				}
+			`,
+			wantErr: true,
+		},
+		{
+			name: "UnionType/Duplicate",
+			source: `
+				union SearchResult = Photo | Photo
+
+				type Photo {
+					height: Int
+					width: Int
+				}
+
+				type Query {
+					firstSearchResult: SearchResult
+				}
+			`,
+			wantErr: true,
+		},
+		{
 			// https://graphql.github.io/graphql-spec/June2018/#example-36555
 			name: "EnumType",
 			source: `
