@@ -95,6 +95,39 @@ serialization.
 [graph-gophers/graphql-go#17]: https://github.com/graph-gophers/graphql-go/issues/17
 [`graphql.ParseSchema`]: https://godoc.org/github.com/graph-gophers/graphql-go#ParseSchema
 
+### `github.com/99designs/gqlgen`
+
+[gqlgen][] is another common GraphQL solution for Go. Its primary selling point
+is that rather than using reflection, it generates Go code based on a GraphQL
+schema and a YAML configuration file.
+
+While this seems productive and helpful, @zombiezen has a [great][zombiezen protobuf]
+[deal][zombiezen wire] of [experience][go-capnproto2] with code generators and
+knows their strengths and limitations. Notably, code generators are difficult to
+reason about when generated code is mixed with user-written code. Names can
+conflict and special configuration directives are required. gqlgen is no
+exception, and while gqlgen may be productive for smaller projects, code
+generation provides unacceptable complexity for larger projects.
+
+Of all the other Go libraries for GraphQL @zombiezen has surveyed, gqlgen is
+definitely the most [feature-complete][gqlgen features], but @zombiezen found
+these features hard to use or find due to the large API surface area dedicated
+to supporting the generated code. Further, critical features like
+[examining the selection set][gqlgen field collection] are limited to a single
+level of depth, whereas this library permits checking arbitrary depth.
+
+In practice, the code someone would write for this library is largely similar to
+`gqlgen`, but with far less glue and build complexity. By performing up-front
+type structure checks, this library is able to get many of the same guarantees
+without nearly as much intrusion on Go developer workflow.
+
+[go-capnproto2]: https://github.com/capnproto/go-capnproto2
+[gqlgen]: https://gqlgen.com/
+[gqlgen features]: https://gqlgen.com/feature-comparison/
+[gqlgen field collection]: https://gqlgen.com/reference/field-collection/
+[zombiezen protobuf]: https://github.com/golang/protobuf/commits?author=light@google.com
+[zombiezen wire]: https://github.com/google/wire/commits?author=zombiezen
+
 ## License
 
 [Apache 2.0](https://github.com/zombiezen/graphql-server/blob/master/LICENSE)
