@@ -1679,14 +1679,12 @@ func TestUnion(t *testing.T) {
 			t.Error(`set.Has("bar") = false; want true`)
 		}
 
-		got := resp.Data.ValueFor("fooOrBar").GoValue()
-		want := map[string]interface{}{
-			"__typename": "UnionFoo",
-			"foo":        "xyzzy",
-		}
-		if diff := cmp.Diff(want, got); diff != "" {
-			t.Errorf("fooOrBar (-want +got):\n%s", diff)
-		}
+		(&valueExpectations{
+			object: []fieldExpectations{
+				{key: "__typename", value: valueExpectations{scalar: "UnionFoo"}},
+				{key: "foo", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		}).check(t, resp.Data.ValueFor("fooOrBar"))
 	})
 
 	t.Run("DynamicTypeName", func(t *testing.T) {
@@ -1716,14 +1714,12 @@ func TestUnion(t *testing.T) {
 			t.Error(`set.Has("bar") = false; want true`)
 		}
 
-		got := resp.Data.ValueFor("fooOrBar").GoValue()
-		want := map[string]interface{}{
-			"__typename": "Bar",
-			"bar":        "xyzzy",
-		}
-		if diff := cmp.Diff(want, got); diff != "" {
-			t.Errorf("fooOrBar (-want +got):\n%s", diff)
-		}
+		(&valueExpectations{
+			object: []fieldExpectations{
+				{key: "__typename", value: valueExpectations{scalar: "Bar"}},
+				{key: "bar", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		}).check(t, resp.Data.ValueFor("fooOrBar"))
 	})
 
 	t.Run("OverlappingFieldNames", func(t *testing.T) {
@@ -1752,14 +1748,12 @@ func TestUnion(t *testing.T) {
 				t.Error(`set.Has("foo") = false; want true`)
 			}
 
-			got := resp.Data.ValueFor("fooOrFoo").GoValue()
-			want := map[string]interface{}{
-				"__typename": "UnionFoo",
-				"foo":        "static",
-			}
-			if diff := cmp.Diff(want, got); diff != "" {
-				t.Errorf("fooOrFoo (-want +got):\n%s", diff)
-			}
+			(&valueExpectations{
+				object: []fieldExpectations{
+					{key: "__typename", value: valueExpectations{scalar: "UnionFoo"}},
+					{key: "foo", value: valueExpectations{scalar: "static"}},
+				},
+			}).check(t, resp.Data.ValueFor("fooOrFoo"))
 		})
 
 		t.Run("WithArg", func(t *testing.T) {
@@ -1782,14 +1776,47 @@ func TestUnion(t *testing.T) {
 				t.Error(`set.Has("foo") = false; want true`)
 			}
 
-			got := resp.Data.ValueFor("fooOrFoo").GoValue()
-			want := map[string]interface{}{
-				"__typename": "MyFoo",
-				"foo":        "xyzzy",
+			(&valueExpectations{
+				object: []fieldExpectations{
+					{key: "__typename", value: valueExpectations{scalar: "MyFoo"}},
+					{key: "foo", value: valueExpectations{scalar: "xyzzy"}},
+				},
+			}).check(t, resp.Data.ValueFor("fooOrFoo"))
+		})
+
+		t.Run("Typename", func(t *testing.T) {
+			q := &unionQuery{
+				fooOrFoo: UnionFoo{Foo: "static"},
 			}
-			if diff := cmp.Diff(want, got); diff != "" {
-				t.Errorf("fooOrFoo (-want +got):\n%s", diff)
+			srv, err := NewServer(schema, q, nil)
+			if err != nil {
+				t.Fatal(err)
 			}
+			resp := srv.Execute(ctx, Request{Query: `{ fooOrFoo {` +
+				`... on MyFoo { __typename, foo(arg: "xyzzy") }, ` +
+				`... on UnionFoo { foo }, ` +
+				`__typename, ` +
+				`} }`})
+			if len(resp.Errors) > 0 {
+				t.Fatal(resp.Errors)
+			}
+
+			q.mu.Lock()
+			set := q.set
+			q.mu.Unlock()
+			if !set.Has("__typename") {
+				t.Error(`set.Has("__typename") = false; want true`)
+			}
+			if !set.Has("foo") {
+				t.Error(`set.Has("foo") = false; want true`)
+			}
+
+			(&valueExpectations{
+				object: []fieldExpectations{
+					{key: "__typename", value: valueExpectations{scalar: "UnionFoo"}},
+					{key: "foo", value: valueExpectations{scalar: "static"}},
+				},
+			}).check(t, resp.Data.ValueFor("fooOrFoo"))
 		})
 	})
 }
