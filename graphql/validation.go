@@ -407,6 +407,9 @@ func validateSelectionSet(v *validationScope, isRootQuery bool, typ *gqlType, se
 			panic("unknown selection type")
 		}
 	}
+	if len(errs) > 0 {
+		return errs
+	}
 	var groups fieldGroups
 	groups.addSet(v, typ, set)
 	for _, group := range groups {

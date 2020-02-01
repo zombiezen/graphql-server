@@ -587,6 +587,71 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
+			// Inspired by https://spec.graphql.org/June2018/#example-a8406
+			name: "FieldSelection/Merging/DifferingFields/Safe",
+			request: `
+				fragment safeDifferingFields on CatOrDog {
+					... on Dog {
+						volume: barkVolume
+					}
+					... on Cat {
+						volume: meowVolume
+					}
+				}
+
+				# Use this in query to avoid errors.
+				{ dog { ...safeDifferingFields } }
+			`,
+			wantErrors: nil,
+		},
+		{
+			// Inspired by https://spec.graphql.org/June2018/#example-54e3d
+			name: "FieldSelection/Merging/DifferingFields/Conflict",
+			request: `
+				fragment conflictingDifferingResponses on CatOrDog {
+					... on Dog {
+						someValue: nickname
+					}
+					... on Cat {
+						someValue: meowVolume
+					}
+				}
+
+				# Use this in query to avoid errors.
+				{ dog { ...conflictingDifferingResponses } }
+			`,
+			wantErrors: []*ResponseError{
+				{
+					Locations: []Location{
+						{4, 49},
+						{7, 49},
+					},
+					Path: []PathSegment{
+						{Field: "dog"},
+						{Field: "someValue"},
+					},
+				},
+			},
+		},
+		{
+			// Inspired by https://spec.graphql.org/June2018/#example-a8406
+			name: "FieldSelection/Merging/DifferingArgs/Safe",
+			request: `
+				fragment safeDifferingArgs on CatOrDog {
+					... on Dog {
+						doesKnowCommand(dogCommand: SIT)
+					}
+					... on Cat {
+						doesKnowCommand(catCommand: JUMP)
+					}
+				}
+
+				# Use this in query to avoid errors.
+				{ dog { ...safeDifferingArgs } }
+			`,
+			wantErrors: nil,
+		},
+		{
 			// Inspired by https://graphql.github.io/graphql-spec/June2018/#example-e23c5
 			name: "FieldSelection/Leaf/ScalarValid",
 			request: `
