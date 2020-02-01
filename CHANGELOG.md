@@ -11,8 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -  Unions are now fully supported. See the [type resolution][] docs for more
    information on how to distinguish dynamic types. ([#15][])
+-  `Server.Execute` creates [OpenCensus spans][] during various phases. ([#7][])
 
+[#7]: https://github.com/zombiezen/graphql-server/issues/7
 [#15]: https://github.com/zombiezen/graphql-server/issues/15
+[OpenCensus spans]: https://opencensus.io/tracing/span/
 [type resolution]: https://pkg.go.dev/zombiezen.com/go/graphql-server/graphql#hdr-Type_Resolution
 
 ## [0.6.1][]
@@ -231,7 +234,6 @@ development work.
 -  Explicit `schema` blocks ([#6][])
 
 [#6]: https://github.com/zombiezen/graphql-server/issues/6
-[#7]: https://github.com/zombiezen/graphql-server/issues/7
 [#8]: https://github.com/zombiezen/graphql-server/issues/8
 [#9]: https://github.com/zombiezen/graphql-server/issues/9
 [#10]: https://github.com/zombiezen/graphql-server/issues/10
