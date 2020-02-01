@@ -48,6 +48,13 @@ Lastly, if the object is a Go struct and the field takes no arguments, then the
 server will read the value from an exported struct field with the same name
 ignoring case.
 
+Type Resolution
+
+For abstract types, the server will first attempt to call a GraphQLType method
+as documented in the Typer interface. If that's not present, the Go type name
+will be matched with the GraphQL type with the same name ignoring case if
+present. Otherwise, type resolution fails.
+
 Scalars
 
 Go values will be converted to scalars in the result by trying the following

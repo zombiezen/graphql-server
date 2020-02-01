@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.5.0...HEAD
 
+### Added
+
+-  Unions are now fully supported. See the [type resolution][] docs for more
+   information on how to distinguish dynamic types. ([#15][])
+
+[#15]: https://github.com/zombiezen/graphql-server/issues/15
+[type resolution]: https://pkg.go.dev/zombiezen.com/go/graphql-server/graphql#hdr-Type_Resolution
+
 ## [0.5.0][]
 
 The 0.5 release adds functionality to allow control of requests before resolving
@@ -208,7 +216,6 @@ development work.
 [#12]: https://github.com/zombiezen/graphql-server/issues/12
 [#13]: https://github.com/zombiezen/graphql-server/issues/13
 [#14]: https://github.com/zombiezen/graphql-server/issues/14
-[#15]: https://github.com/zombiezen/graphql-server/issues/15
 [#16]: https://github.com/zombiezen/graphql-server/issues/16
 [#17]: https://github.com/zombiezen/graphql-server/issues/17
 [#18]: https://github.com/zombiezen/graphql-server/issues/18
