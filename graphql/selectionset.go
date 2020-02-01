@@ -423,3 +423,12 @@ func (f *SelectedField) Arg(name string) Value {
 func (f *SelectedField) SelectionSet() *SelectionSet {
 	return f.sub
 }
+
+// ForType reports whether the field would be selected on the given type.
+func (f *SelectedField) ForType(typeName string) bool {
+	if len(f.typeCondition) == 0 {
+		return true
+	}
+	_, ok := f.typeCondition[typeName]
+	return ok
+}
