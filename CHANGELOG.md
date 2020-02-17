@@ -5,7 +5,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased][]
 
-[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.7.1...HEAD
+
+## [0.7.1][]
+
+The 0.7.1 release fixed an issue with non-nullable union types.
+
+[0.7.1]: https://github.com/zombiezen/graphql-server/releases/tag/v0.7.1
 
 ### Fixed
 
