@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/zombiezen/graphql-server/compare/v0.7.0...HEAD
 
+### Fixed
+
+-  Non-nullable unions will now correctly populate their fields.
+
 ## [0.7.0][]
 
 The 0.7 release added support for [union types][] and [OpenCensus][] trace

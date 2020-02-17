@@ -86,7 +86,7 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 		return Value{typ: typ}, []error{err}
 	}
 	typ = resolvedType
-	sel = sel.forType(typ.Name().String())
+	sel = sel.forType(typ.toNullable().Name().String())
 	if isGraphQLNull(interfaceValueForAssertions(goValue)) {
 		if !typ.isNullable() {
 			return Value{typ: typ}, []error{xerrors.Errorf("cannot convert nil to %v", typ)}
@@ -138,7 +138,6 @@ func (schema *Schema) valueFromGo(ctx context.Context, variables map[string]Valu
 			// reserved fields.
 			switch f.name {
 			case typeNameFieldName:
-				// TODO(someday): Check dynamic type of object.
 				fval = Value{
 					typ: stringType.toNonNullable(),
 					val: typ.toNullable().String(),

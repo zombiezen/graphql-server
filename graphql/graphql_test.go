@@ -1754,6 +1754,8 @@ func TestUnion(t *testing.T) {
 	schema, err := ParseSchema(`
 		type Query {
 			fooOrBar: FooOrBar
+			nonNullableFooOrBar: FooOrBar!
+
 			fooOrFoo: FooOrFoo
 		}
 
@@ -1778,6 +1780,7 @@ func TestUnion(t *testing.T) {
 	}
 	ctx := context.Background()
 	const fooOrBarQuery = `{ fooOrBar { __typename, ... on UnionFoo { foo }, ... on Bar { bar } } }`
+	const nonNullableFooOrBarQuery = `{ nonNullableFooOrBar { __typename, ... on UnionFoo { foo }, ... on Bar { bar } } }`
 
 	t.Run("StaticTypeName", func(t *testing.T) {
 		q := &unionQuery{fooOrBar: &UnionFoo{Foo: "xyzzy"}}
@@ -1806,6 +1809,61 @@ func TestUnion(t *testing.T) {
 				{key: "foo", value: valueExpectations{scalar: "xyzzy"}},
 			},
 		}).check(t, resp.Data.ValueFor("fooOrBar"))
+	})
+
+	t.Run("Null", func(t *testing.T) {
+		q := &unionQuery{fooOrBar: nil}
+		srv, err := NewServer(schema, q, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := srv.Execute(ctx, Request{Query: fooOrBarQuery})
+		if len(resp.Errors) > 0 {
+			t.Fatal(resp.Errors)
+		}
+
+		q.mu.Lock()
+		set := q.set
+		q.mu.Unlock()
+		if !set.Has("foo") {
+			t.Error(`set.Has("foo") = false; want true`)
+		}
+		if !set.Has("bar") {
+			t.Error(`set.Has("bar") = false; want true`)
+		}
+
+		if got := resp.Data.ValueFor("fooOrBar"); !got.IsNull() {
+			t.Errorf("fooOrBar = %v; want null", got)
+		}
+	})
+
+	t.Run("NonNullable", func(t *testing.T) {
+		q := &unionQuery{fooOrBar: &UnionFoo{Foo: "xyzzy"}}
+		srv, err := NewServer(schema, q, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := srv.Execute(ctx, Request{Query: nonNullableFooOrBarQuery})
+		if len(resp.Errors) > 0 {
+			t.Fatal(resp.Errors)
+		}
+
+		q.mu.Lock()
+		set := q.set
+		q.mu.Unlock()
+		if !set.Has("foo") {
+			t.Error(`set.Has("foo") = false; want true`)
+		}
+		if !set.Has("bar") {
+			t.Error(`set.Has("bar") = false; want true`)
+		}
+
+		(&valueExpectations{
+			object: []fieldExpectations{
+				{key: "__typename", value: valueExpectations{scalar: "UnionFoo"}},
+				{key: "foo", value: valueExpectations{scalar: "xyzzy"}},
+			},
+		}).check(t, resp.Data.ValueFor("nonNullableFooOrBar"))
 	})
 
 	t.Run("DynamicTypeName", func(t *testing.T) {
@@ -1951,6 +2009,13 @@ type unionQuery struct {
 }
 
 func (q *unionQuery) FooOrBar(set *SelectionSet) interface{} {
+	q.mu.Lock()
+	q.set = set
+	q.mu.Unlock()
+	return q.fooOrBar
+}
+
+func (q *unionQuery) NonNullableFooOrBar(set *SelectionSet) interface{} {
 	q.mu.Lock()
 	q.set = set
 	q.mu.Unlock()
